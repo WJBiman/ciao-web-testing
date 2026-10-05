@@ -54,22 +54,17 @@ services:
       NEXT_PUBLIC_API_BASE_URL: ""
     ports:
       - "127.0.0.1:3005:3000"
-  ciao-pma:
-    image: phpmyadmin/phpmyadmin:latest
-    container_name: ciao-pma
+  ciao-db-viewer:
+    image: adminer:latest
+    container_name: ciao-db-viewer
     restart: always
     depends_on:
       ciao-db:
         condition: service_healthy
     environment:
-      PMA_HOST: ciao-db
-      PMA_PORT: 3306
-      PMA_USER: root
-      PMA_PASSWORD: ciao_root_secret_2026
-      PMA_ABSOLUTE_URI: https://ciao.omnixhub.tech/pma/
-      UPLOAD_LIMIT: 64M
+      ADMINER_DEFAULT_SERVER: ciao-db
     ports:
-      - "127.0.0.1:8086:80"
+      - "127.0.0.1:8086:8080"
     networks:
       - ciao-network
 
