@@ -72,7 +72,7 @@ export default function HomePage() {
   return (
     <div className="min-h-screen bg-[#f6f8f6] text-[#193542]">
       <section className="relative isolate min-h-[620px] overflow-hidden bg-[#e5f1ed]">
-        <Image src="/images/hero-coastal-journey.png" alt="Intercity coach travelling along a scenic coastal road" fill priority sizes="100vw" quality={100} className="object-cover object-[64%_center]" />
+        <Image src="/images/hero-coastal-journey.png" alt="Intercity coach travelling along a scenic coastal road" fill priority sizes="100vw" unoptimized className="object-cover object-[64%_center]" />
         <div className="absolute inset-0" style={{ background: "linear-gradient(90deg, rgba(244,249,245,.98) 0%, rgba(244,249,245,.96) 24%, rgba(244,249,245,.78) 39%, rgba(244,249,245,0) 57%)" }} />
         <div className="absolute inset-0" style={{ background: "linear-gradient(0deg, #f6f8f6 0%, rgba(246,248,246,0) 7%)" }} />
         <div className="relative mx-auto flex min-h-[620px] max-w-7xl items-center px-5 pb-32 pt-12 sm:px-8 lg:px-10">
