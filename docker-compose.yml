@@ -1,0 +1,65 @@
+services:
+  ciao-db:
+    image: mysql:8.0
+    container_name: ciao-mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: ciao_root_secret_2026
+      MYSQL_DATABASE: ciao_db
+    volumes:
+      - ciao_mysql_data:/var/lib/mysql
+      - ./schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
+    ports:
+      - "127.0.0.1:3307:3306"
+    networks:
+      - ciao-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-pciao_root_secret_2026"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  ciao-backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ciao-backend
+    restart: always
+    depends_on:
+      ciao-db:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://ciao-db:3306/ciao_db?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: ciao_root_secret_2026
+      CIAO_JWT_SECRET: super_secure_ciao_secret_jwt_key_at_least_32_chars_2026
+      CIAO_COOKIE_SECURE: "false"
+      SERVER_PORT: 8080
+    ports:
+      - "127.0.0.1:8085:8080"
+    networks:
+      - ciao-network
+
+  ciao-frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: ciao-frontend
+    restart: always
+    depends_on:
+      - ciao-backend
+    environment:
+      PORT: 3000
+      NEXT_PUBLIC_API_BASE_URL: ""
+    ports:
+      - "127.0.0.1:3005:3000"
+    networks:
+      - ciao-network
+
+volumes:
+  ciao_mysql_data:
+
+networks:
+  ciao-network:
+    driver: bridge

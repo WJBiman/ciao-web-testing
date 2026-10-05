@@ -1,0 +1,113 @@
+# =============================================================================
+# CIAO (Pvt) Ltd — Centralized Web-Based Bus Reservation & Logistics Platform
+# Git Exclusion Rules (.gitignore)
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# 1. Environment, Secrets & Local Credentials
+# -----------------------------------------------------------------------------
+.local/
+*.env
+*.env.*
+!.env.example
+cookie.txt
+cookies.txt
+*.pem
+*.key
+*.cert
+
+# -----------------------------------------------------------------------------
+# 2. Node & Frontend Generated Output
+# -----------------------------------------------------------------------------
+node_modules/
+frontend/node_modules/
+.next/
+frontend/.next/
+out/
+frontend/out/
+build/
+frontend/build/
+.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+*.tsbuildinfo
+frontend/*.tsbuildinfo
+next-env.d.ts
+frontend/next-env.d.ts
+
+# -----------------------------------------------------------------------------
+# 3. Java & Maven Build Output
+# -----------------------------------------------------------------------------
+target/
+backend/target/
+.m2repo/
+backend/.m2repo/
+*.jar
+*.war
+*.class
+backend/*.args
+
+# -----------------------------------------------------------------------------
+# 4. Logs & Runtime Artifacts
+# -----------------------------------------------------------------------------
+*.log
+local-logs/
+backend/*.log
+frontend/*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# -----------------------------------------------------------------------------
+# 5. OS Metadata & Temporary Caches
+# -----------------------------------------------------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
+*.tmp
+*.temp
+*.swp
+*.swo
+*.bak
+*.old
+
+# -----------------------------------------------------------------------------
+# 6. IDE & Editor Local State
+# -----------------------------------------------------------------------------
+.idea/
+.vscode/
+*.iml
+.classpath
+.project
+.settings/
+
+# -----------------------------------------------------------------------------
+# 7. AI Tooling & Internal Development Scratch Caches
+# -----------------------------------------------------------------------------
+.agents/
+.codex/
+.graphify-cache/
+.graphify-venv/
+graphify-out/
+scratch/
+FULL_CHAT_HISTORY_WITH_MEDIA.html
+FULL_CHAT_HISTORY_WITH_MEDIA.md
+RESTORED_CHAT_HISTORY.md
+media/transcript.jsonl
+media/transcript_full.jsonl
+
+# -----------------------------------------------------------------------------
+backups/
+backend/backup_*.sql
+evidence/**/before-*.sql
+
+# -----------------------------------------------------------------------------
+# 9. Private Internal Evaluation & Demonstration Documents
+# -----------------------------------------------------------------------------
+docs/CIAO_TEAM_DEMONSTRATION_GUIDE.*
+
