@@ -115,6 +115,7 @@ public class RouteService {
 
         // 6. Delete the route record from database
         routeRepository.deleteById(id);
+        routeRepository.flush();
     }
 }
 

@@ -55,6 +55,11 @@ public class GroupBooking {
     @Column(name = "status")
     private GroupBookingStatus status = GroupBookingStatus.PENDING_REVIEW;
 
+    @Column(name = "cancellation_reason", length = 500)
+    private String cancellationReason;
+    public String getCancellationReason() { return cancellationReason; }
+    public void setCancellationReason(String value) { cancellationReason = value; }
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "assigned_bus_id")
     private Bus assignedBus;

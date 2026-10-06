@@ -248,7 +248,7 @@ export default function MyBookingsPage() {
                       setSubmittingCancel(true);
                       setCancelError("");
                       try {
-                        await apiRequest(`/api/eer/reservations/${selectedCancelRes.id}/cancel-request`, {
+                        await apiRequest(`/api/reservations/${selectedCancelRes.id}/cancel-request`, {
                           method: "POST",
                           body: JSON.stringify({ reason: cancelReason.trim() }),
                         });
@@ -259,7 +259,11 @@ export default function MyBookingsPage() {
                           window.location.reload();
                         }, 1500);
                       } catch (err: unknown) {
-                        setCancelError(err instanceof Error ? err.message : "Failed to submit cancellation request.");
+                        if (err instanceof ApiError && err.status === 401) {
+                          setCancelError("Your session has expired. Please sign in again to submit this cancellation request.");
+                        } else {
+                          setCancelError(err instanceof Error ? err.message : "Failed to submit cancellation request.");
+                        }
                       } finally {
                         setSubmittingCancel(false);
                       }

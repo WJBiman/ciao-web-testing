@@ -34,6 +34,9 @@ public class PaymentService {
     @Autowired
     private ScheduleRepository scheduleRepository;
 
+    @Autowired
+    private com.ciao.backend.pattern.strategy.payment.PaymentProcessingContext paymentProcessingContext;
+
     @Transactional
     public PaymentResponse processCheckout(PaymentRequest request, String username, Integer guestReservationId) {
         Reservation reservation = reservationRepository.findByIdForUpdate(request.getReservationId())
@@ -92,22 +95,23 @@ public class PaymentService {
             eer.notifyBooking(reservation, "Booking cancelled. Your seats have been released.");
             return new PaymentResponse(null, "CANCELLED", "Demo payment cancelled. Seats released. No money was charged.");
         }
-        boolean isSuccess = request.getCardNumber() != null
-                && "4111111111111111".equals(request.getCardNumber().replace(" ", "").replace("-", ""))
-                && request.getCardholderName() != null
-                && "CIAO TEST".equalsIgnoreCase(request.getCardholderName().trim())
-                && "12/30".equals(request.getExpiry())
-                && "123".equals(request.getCvv());
-        String txId = "DEMO-" + UUID.randomUUID().toString();
-        Payment.PaymentMethod method = Payment.PaymentMethod.CARD;
 
-        Payment payment = new Payment(
-                reservation,
-                reservation.getTotalFare(),
-                method,
-                isSuccess ? Payment.PaymentStatus.SUCCESS : Payment.PaymentStatus.FAILED,
-                txId
-        );
+        // =========================================================================================
+        // DESIGN PATTERN: STRATEGY PATTERN (Behavioral)
+        // ASSIGNED MEMBER: Dahanayake T.S. (IT25103474)
+        // COMPONENT: E-Ticket Reservation & Management
+        // EXPLANATION: Executes polymorphic payment processing without hardcoded if-else logic.
+        //              Delegates execution to CreditCardPaymentStrategy or BankTransferPaymentStrategy
+        //              via PaymentProcessingContext based on the incoming checkout parameters.
+        // =========================================================================================
+        Payment payment = paymentProcessingContext.processPayment(reservation, request);
+        boolean isSuccess = (payment.getStatus() == Payment.PaymentStatus.SUCCESS);
+        String txId = payment.getTransactionId();
+        
+        // Operational Audit: Payment Transaction Event (Assigned Member: Dahanayake T.S. - IT25103474)
+        System.out.println("[STRATEGY: PAYMENT-PROCESSING] Executed Strategy: " + payment.getPaymentMethod() 
+                + " -> Status: " + payment.getStatus() + " | TxID: " + txId + " | Amount: LKR " + payment.getAmount());
+        
         paymentRepository.save(payment);
 
         if (isSuccess) {

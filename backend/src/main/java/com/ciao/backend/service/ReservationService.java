@@ -43,6 +43,15 @@ public class ReservationService {
     @Autowired
     private JwtUtils jwtUtils;
 
+    @Autowired
+    private com.ciao.backend.repository.CancellationRequestRepository cancellationRequestRepository;
+
+    @Autowired
+    private com.ciao.backend.repository.NotificationRepository notificationRepository;
+
+    @Autowired
+    private com.ciao.backend.repository.StaffProfileRepository staffProfileRepository;
+
     public List<String> getUnavailableSeats(Integer scheduleId) {
         return reservedSeatRepository.findAllUnavailableSeatsForSchedule(scheduleId, LocalDateTime.now());
     }
@@ -212,6 +221,80 @@ public class ReservationService {
                     .toList();
             return new com.ciao.backend.dto.reservation.UserReservationDTO(res, seats);
         }).toList();
+    }
+
+    @Transactional
+    public java.util.Map<String, Object> requestCancellation(Integer reservationId, String username, String reason) {
+        if (username == null || username.isBlank()) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.UNAUTHORIZED, "Please sign in to continue.");
+        }
+
+        User user = userRepository.findByEmailIgnoreCase(username)
+                .or(() -> userRepository.findByUsernameIgnoreCase(username))
+                .or(() -> userRepository.findByPhone(username))
+                .orElseThrow(() -> new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.UNAUTHORIZED, "Please sign in to continue."));
+
+        Reservation r = reservationRepository.findByIdForUpdate(reservationId)
+                .orElseThrow(() -> new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.NOT_FOUND, "Reservation not found."));
+
+        boolean isStaffOrAdmin = user.getRole() != null &&
+                (user.getRole().getRoleName().contains("ADMIN") || user.getRole().getRoleName().contains("STAFF"));
+        if (!isStaffOrAdmin && (r.getUser() == null || !r.getUser().getId().equals(user.getId()))) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN, "Reservation does not belong to you.");
+        }
+
+        if (r.getStatus() != Reservation.ReservationStatus.CONFIRMED) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST, "Only confirmed reservations can be submitted for cancellation/refund.");
+        }
+
+        Schedule s = r.getSchedule();
+        if (s == null || s.getDepartureTime() == null || !s.getDepartureTime().isAfter(LocalDateTime.now())) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST, "Cannot cancel reservations for trips that have already departed.");
+        }
+
+        // Check if ticket is checked in
+        java.util.Optional<com.ciao.backend.entity.Ticket> ticketOpt = tickets.findByReservationId(r.getId());
+        if (ticketOpt.isPresent() && ticketOpt.get().getCheckedInAt() != null) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST, "Checked-in tickets cannot be cancelled.");
+        }
+
+        // Check if request already pending
+        java.util.Optional<com.ciao.backend.entity.CancellationRequest> existingPending = cancellationRequestRepository.findPendingByReservationIdForUpdate(r.getId());
+        if (existingPending.isPresent()) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT, "A cancellation request is already pending adjudication for this reservation.");
+        }
+
+        com.ciao.backend.entity.CancellationRequest cr = new com.ciao.backend.entity.CancellationRequest(r, user, reason);
+        cr = cancellationRequestRepository.save(cr);
+
+        // Notify user
+        com.ciao.backend.entity.Notification n = new com.ciao.backend.entity.Notification();
+        n.setUser(user);
+        n.setTitle("Cancellation Request Logged");
+        n.setNotificationType("REFUND_REQUEST");
+        n.setMessage("[Cancellation Request #" + cr.getId() + "] Your cancellation request for booking #" + r.getId() + " (" + reason + ") has been submitted to Customer Service.");
+        n.setSentAt(LocalDateTime.now());
+        notificationRepository.save(n);
+
+        // Notify Customer Service Supervisors
+        List<com.ciao.backend.entity.StaffProfile> supervisors = staffProfileRepository.findByStaffType("CUSTOMER_SERVICE_SUPERVISOR");
+        for (com.ciao.backend.entity.StaffProfile sp : supervisors) {
+            if (sp.getUser() != null) {
+                com.ciao.backend.entity.Notification sn = new com.ciao.backend.entity.Notification();
+                sn.setUser(sp.getUser());
+                sn.setTitle("New Cancellation Request");
+                sn.setNotificationType("REFUND_REQUEST");
+                sn.setMessage("[Action Required] Passenger " + r.getPassengerName() + " requested cancellation for booking #" + r.getId() + " (" + reason + ").");
+                sn.setSentAt(LocalDateTime.now());
+                notificationRepository.save(sn);
+            }
+        }
+
+        return java.util.Map.of(
+                "status", "PENDING",
+                "requestId", cr.getId(),
+                "message", "Cancellation request logged successfully."
+        );
     }
 }
 

@@ -76,6 +76,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/group-bookings").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/group-bookings/status").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/group-bookings/recover-token").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/group-bookings/cancel").permitAll()
                         .requestMatchers("/api/parcels/quote", "/api/parcels/quote/**").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/parcels", "/api/parcels/", "/api/parcels/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/parcels/track/**").permitAll()

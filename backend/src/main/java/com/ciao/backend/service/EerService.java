@@ -372,7 +372,15 @@ public class EerService {
         }
         String name = auth.getName();
         if (name == null || name.isBlank() || "anonymousUser".equals(name)) return null;
-        return users.findByEmailIgnoreCase(name).orElseGet(() -> users.findByPhone(name).orElse(null));
+        return users.findByEmailIgnoreCase(name)
+                .or(() -> users.findByUsernameIgnoreCase(name))
+                .or(() -> users.findByPhone(name))
+                .or(() -> {
+                    String norm = com.ciao.backend.security.AccountIdentifiers.normalize(name);
+                    var matches = users.findByPhoneIn(com.ciao.backend.security.AccountIdentifiers.phoneForms(norm));
+                    return matches.isEmpty() ? Optional.empty() : Optional.of(matches.get(0));
+                })
+                .orElse(null);
     }
 
     public CustomerProfile customer(User user) {

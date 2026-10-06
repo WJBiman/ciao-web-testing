@@ -47,6 +47,8 @@ export default function ReportLostPage() {
     routeId: "",
   });
 
+  const [createdItemId, setCreatedItemId] = useState<number | null>(null);
+
   useEffect(() => {
     fetch(`${API_BASE_URL}/api/fleet/buses/active`)
       .then((r) => r.json())
@@ -57,6 +59,19 @@ export default function ReportLostPage() {
       .then((r) => r.json())
       .then((data) => setRoutes(Array.isArray(data) ? data : []))
       .catch(() => setRoutes([]));
+
+    fetch(`${API_BASE_URL}/api/auth/me`, { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((user) => {
+        if (user) {
+          setForm((prev) => ({
+            ...prev,
+            reportedByName: prev.reportedByName || user.fullName || "",
+            reportedByPhone: prev.reportedByPhone || user.phone || "",
+          }));
+        }
+      })
+      .catch(() => {});
   }, []);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
@@ -68,6 +83,7 @@ export default function ReportLostPage() {
     setLoading(true);
     setError("");
     setSuccess(false);
+    setCreatedItemId(null);
 
     const payload: Record<string, string | number> = {
       itemDescription: form.itemDescription.trim(),
@@ -81,6 +97,7 @@ export default function ReportLostPage() {
       const res = await fetch(`${API_BASE_URL}/api/lost-items`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify(payload),
       });
 
@@ -90,7 +107,8 @@ export default function ReportLostPage() {
         setError(data.message || "Submission failed. Please check your details.");
       } else {
         setSuccess(true);
-        setForm({ itemDescription: "", reportedByName: "", reportedByPhone: "", busId: "", routeId: "" });
+        setCreatedItemId(data.id || null);
+        setForm((prev) => ({ ...prev, itemDescription: "", busId: "", routeId: "" }));
       }
     } catch {
       setError("Network error. Please try again.");
@@ -129,9 +147,11 @@ export default function ReportLostPage() {
           <div className="mb-6 p-4 rounded-xl bg-emerald-500/15 border border-emerald-500/40 flex items-start gap-3 animate-fade-in">
             <CheckCircle2 className="w-5 h-5 text-emerald-400 mt-0.5 shrink-0" />
             <div>
-              <p className="text-emerald-700 font-semibold text-sm md:text-base">Report Logged Successfully</p>
-              <p className="text-[#516A74] text-xs md:text-sm mt-0.5">
-                Our terminal station team has registered your claim. If an item matching your description is secured, you will receive an SMS and a verified claim token.
+              <p className="text-emerald-700 font-semibold text-sm md:text-base">
+                Report Logged Successfully {createdItemId && <span className="font-mono font-bold text-xs bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full ml-1.5 border border-emerald-300">Docket LF-#{String(createdItemId).padStart(4, "0")} (Item ID: #{createdItemId})</span>}
+              </p>
+              <p className="text-[#516A74] text-xs md:text-sm mt-1">
+                A confirmation notification has been sent to your account. If station staff locates and secures this item, you will be notified with your Item ID to file an ownership claim.
               </p>
             </div>
           </div>

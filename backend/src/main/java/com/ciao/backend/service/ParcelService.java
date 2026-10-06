@@ -29,6 +29,9 @@ public class ParcelService {
     @Autowired
     private BusRepository busRepository;
 
+    @Autowired
+    private com.ciao.backend.pattern.observer.parcel.ParcelTrackingSubject parcelTrackingSubject;
+
     @Transactional
     public ParcelResponse createParcel(ParcelBookingRequest request) {
         // Validate Bus
@@ -213,8 +216,22 @@ public class ParcelService {
             throw new RuntimeException("Invalid status value.");
         }
 
+        String oldStatus = parcel.getStatus();
         parcel.setStatus(newStatus);
         Parcel saved = parcelRepository.save(parcel);
+
+        // =========================================================================================
+        // DESIGN PATTERN: OBSERVER PATTERN (Behavioral)
+        // ASSIGNED MEMBER: Sampath M.V. (IT25103647)
+        // COMPONENT: Parcel Booking & Tracking
+        // EXPLANATION: Implements publish-subscribe broadcast for consignment tracking.
+        //              When parcel status transitions (PENDING -> IN_TRANSIT -> DELIVERED),
+        //              ParcelTrackingSubject notifies ParcelCustomerSmsAlertObserver (SMS push)
+        //              and ParcelBranchOperationsAlertObserver (branch inventory update).
+        // =========================================================================================
+        if (parcelTrackingSubject != null) {
+            parcelTrackingSubject.notifyObservers(saved, oldStatus, newStatus);
+        }
 
         if (saved.getCustomer() != null && saved.getCustomer().getUser() != null) {
             com.ciao.backend.entity.Notification n = new com.ciao.backend.entity.Notification();

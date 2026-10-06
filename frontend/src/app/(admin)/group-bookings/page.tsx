@@ -35,6 +35,7 @@ interface GroupBooking {
   depositAmount: number;
   status: string;
   assignedBusId?: number | null;
+  cancellationReason?: string | null;
   createdAt: string;
 }
 
@@ -43,11 +44,14 @@ interface Bus {
   plateNumber: string;
   capacity: number;
   status: string;
+  busType?: string;
 }
 
 export default function GroupBookingsAdmin() {
   const [bookings, setBookings] = useState<GroupBooking[]>([]);
   const [buses, setBuses] = useState<Bus[]>([]);
+  const [availableBuses, setAvailableBuses] = useState<Bus[]>([]);
+  const [loadingAvailableBuses, setLoadingAvailableBuses] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -92,7 +96,7 @@ export default function GroupBookingsAdmin() {
 
   useEffect(() => {
     void apiRequest<{ staffType: string }>("/api/eer/access")
-      .then((access) => setCanDelete(["SYSTEM_ADMINISTRATOR", "OPERATIONS_MANAGER"].includes(access.staffType)))
+      .then((access) => setCanDelete(["SYSTEM_ADMINISTRATOR", "OPERATIONS_MANAGER", "FINANCE_MANAGER"].includes(access.staffType)))
       .catch(() => setCanDelete(false));
   }, []);
 
@@ -135,8 +139,14 @@ export default function GroupBookingsAdmin() {
       });
 
       if (!res.ok) {
-        const errorData = await res.json();
-        throw new Error(errorData.message || "Failed to update status");
+        let errorMsg = "Failed to update status";
+        try {
+          const errorData = await res.json();
+          errorMsg = errorData.message || errorData.error || errorMsg;
+        } catch {
+          errorMsg = (await res.text()) || errorMsg;
+        }
+        throw new Error(errorMsg);
       }
 
       setShowStatusModal(false);
@@ -149,12 +159,30 @@ export default function GroupBookingsAdmin() {
     }
   };
 
-  const openModal = (booking: GroupBooking) => {
+  const openModal = async (booking: GroupBooking) => {
     setSelectedBooking(booking);
     setNewStatus(booking.status);
     setAssignedBusId(booking.assignedBusId ? booking.assignedBusId.toString() : "");
     setUpdateError("");
     setShowStatusModal(true);
+    setLoadingAvailableBuses(true);
+    setAvailableBuses([]);
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/group-bookings/${booking.id}/available-buses`, {
+        credentials: "include",
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setAvailableBuses(Array.isArray(data) ? data : []);
+      } else {
+        setAvailableBuses(buses);
+      }
+    } catch {
+      setAvailableBuses(buses);
+    } finally {
+      setLoadingAvailableBuses(false);
+    }
   };
 
   const getStatusBadgeVariant = (status: string) => {
@@ -283,11 +311,18 @@ export default function GroupBookingsAdmin() {
                       </td>
                       <td className="p-4">
                         <Badge
-                          variant={getStatusBadgeVariant(booking.status)}
-                          className="text-xs uppercase tracking-wider whitespace-nowrap"
+                          variant={booking.status === "CANCELLED" ? "danger" : getStatusBadgeVariant(booking.status)}
+                          className={`text-xs uppercase tracking-wider whitespace-nowrap ${booking.status === "CANCELLED" ? "bg-rose-100 text-rose-800 border-rose-300 font-bold" : ""}`}
                         >
-                          {booking.status.replace("_", " ")}
+                          {booking.status === "CANCELLED" && booking.cancellationReason?.toLowerCase().includes("customer")
+                            ? "Cancelled by Customer"
+                            : booking.status.replace("_", " ")}
                         </Badge>
+                        {booking.status === "CANCELLED" && booking.cancellationReason && (
+                          <div className="text-[11px] text-rose-700 font-medium mt-1 max-w-[220px] leading-tight">
+                            Note: {booking.cancellationReason}
+                          </div>
+                        )}
                       </td>
                       <td className="p-4 font-mono text-[#193542]">
                         {booking.assignedBusId ? (
@@ -373,15 +408,24 @@ export default function GroupBookingsAdmin() {
                     value={assignedBusId}
                     onChange={(e) => setAssignedBusId(e.target.value)}
                   >
-                    <option value="">-- Select Active Bus --</option>
-                    {buses.map((b) => (
+                    <option value="">
+                      {loadingAvailableBuses
+                        ? "-- Checking available fleet... --"
+                        : availableBuses.length === 0
+                        ? "-- No available buses found for this period --"
+                        : "-- Select Available Bus --"}
+                    </option>
+                    {(availableBuses.length > 0 ? availableBuses : buses).map((b) => (
                       <option key={b.id} value={b.id}>
-                        Bus #{b.id} · {b.plateNumber} ({b.capacity} Seats)
+                        Bus #{b.id} · {b.plateNumber} ({b.capacity} Seats{b.busType ? ` · ${b.busType}` : ""})
                       </option>
                     ))}
                   </SearchableSelect>
-                  <p className="text-xs text-[var(--ciao-muted)] mt-1.5">
-                    Only active buses are displayed.
+                  <p className="text-xs text-[var(--ciao-muted)] mt-1.5 flex items-center gap-1.5">
+                    <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                    <span>
+                      Showing only non-busy buses available for {selectedBooking.passengerCount} passengers.
+                    </span>
                   </p>
                 </div>
               )}

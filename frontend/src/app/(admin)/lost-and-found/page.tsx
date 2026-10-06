@@ -38,6 +38,9 @@ interface LostItem {
   busPlateNumber: string | null;
   routeId: number | null;
   routeName: string | null;
+  approvedClaimId?: number | null;
+  hasApprovedClaim?: boolean;
+  pendingClaimsCount?: number;
 }
 
 const NEXT_STATUS: Partial<Record<LostItemStatus, LostItemStatus>> = {
@@ -374,7 +377,7 @@ export default function LostAndFoundPage() {
                       </td>
                       <td className="p-4 text-right">
                         <div className="flex flex-wrap items-center justify-end gap-2">
-                        {NEXT_STATUS[item.status] ? (
+                        {item.status === "LOST" ? (
                           <Button
                             size="sm"
                             variant="gold"
@@ -385,12 +388,52 @@ export default function LostAndFoundPage() {
                             {updatingId === item.id ? (
                               <Loader2 className="w-3.5 h-3.5 animate-spin" />
                             ) : (
-                              NEXT_LABEL[item.status]
+                              "Mark as Secured (Found)"
                             )}
                           </Button>
+                        ) : item.status === "FOUND" ? (
+                          <div className="flex flex-col items-end gap-1">
+                            {item.hasApprovedClaim ? (
+                              <Button
+                                size="sm"
+                                variant="gold"
+                                onClick={() => handleUpdateStatus(item)}
+                                disabled={updatingId === item.id}
+                                className="text-xs h-8 whitespace-nowrap font-semibold bg-emerald-600 hover:bg-emerald-700 text-white"
+                                title="Claim approved by supervisor. Ready for counter handover."
+                              >
+                                {updatingId === item.id ? (
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                ) : (
+                                  "Discharge to Claimant"
+                                )}
+                              </Button>
+                            ) : (
+                              <div className="text-right">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  disabled={true}
+                                  className="text-xs h-8 whitespace-nowrap font-semibold opacity-60 border-amber-300 text-amber-800 bg-amber-50 cursor-not-allowed"
+                                  title={
+                                    (item.pendingClaimsCount ?? 0) > 0
+                                      ? "Claim filed by customer is pending supervisor verification in Management > Claims."
+                                      : "Awaiting customer claim submission and supervisor verification."
+                                  }
+                                >
+                                  Discharge Locked
+                                </Button>
+                                <span className="block text-[10px] text-amber-700 font-medium mt-0.5">
+                                  {(item.pendingClaimsCount ?? 0) > 0
+                                    ? "Supervisor approval pending"
+                                    : "Awaiting customer claim"}
+                                </span>
+                              </div>
+                            )}
+                          </div>
                         ) : (
                           <span className="text-emerald-700 font-semibold text-xs flex items-center justify-end gap-1">
-                            <CheckCircle2 className="w-3.5 h-3.5" /> Case Closed
+                            <CheckCircle2 className="w-3.5 h-3.5" /> Discharged
                           </span>
                         )}
                           <button type="button" onClick={() => setDeleteTarget(item)} aria-label={`Permanently delete lost item ${item.id}`} title="Permanently delete item" className="inline-flex min-h-8 items-center gap-1 rounded-lg border border-rose-200 bg-rose-50 px-2.5 text-xs font-semibold text-rose-700 hover:bg-rose-100 focus-visible:outline-2 focus-visible:outline-rose-700"><Trash2 className="size-3.5" /> Delete</button>

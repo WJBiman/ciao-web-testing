@@ -311,8 +311,27 @@ public class ScheduleService {
         if (request.getBusId() != null) {
             busRepository.findByIdForUpdate(request.getBusId());
         }
-        Schedule schedule = new Schedule();
-        return updateScheduleFields(schedule, request);
+        // =========================================================================================
+        // DESIGN PATTERN: FACTORY METHOD PATTERN (Creational)
+        // ASSIGNED MEMBER: Warushawithana J.B. (IT25100691)
+        // COMPONENT: Route & Schedule Management
+        // EXPLANATION: Encapsulates creation of distinct transit schedule objects.
+        //              ScheduleTripFactoryProvider resolves either DailyRecurringScheduleFactory
+        //              or ExpressDirectScheduleFactory based on repeatDaily flag to configure
+        //              proper recurrence chains and timetable slot intervals.
+        // =========================================================================================
+        boolean repeatDaily = Boolean.TRUE.equals(request.getRepeatDaily());
+        Schedule schedule = com.ciao.backend.pattern.factory.schedule.ScheduleTripFactoryProvider.buildSchedule(
+                repeatDaily, null, null, null, request.getDepartureTime(), request.getArrivalTime()
+        );
+        Schedule saved = updateScheduleFields(schedule, request);
+        
+        // Audit Log: Transit Schedule Creation Event (Assigned Member: Warushawithana J.B. - IT25100691)
+        System.out.println("[FACTORY: SCHEDULE-TRIP] Created Transit Schedule Ref #" + saved.getId() 
+                + " via " + (repeatDaily ? "DailyRecurringScheduleFactory" : "ExpressDirectScheduleFactory") 
+                + " | Departure: " + saved.getDepartureTime() + " | RepeatDaily: " + saved.isRepeatDaily());
+        
+        return saved;
     }
 
     /**

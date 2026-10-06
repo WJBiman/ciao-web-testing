@@ -41,6 +41,10 @@ public class CancellationRequest {
     @Column(length = 500)
     private String adjudicationNotes;
 
+    @Column(name = "requested_at", nullable = false,
+            columnDefinition = "TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+    private LocalDateTime requestedAt = LocalDateTime.now();
+
     @Column(name = "created_at", insertable = false, updatable = false)
     private LocalDateTime createdAt;
 
@@ -83,6 +87,9 @@ public class CancellationRequest {
 
     public String getAdjudicationNotes() { return adjudicationNotes; }
     public void setAdjudicationNotes(String adjudicationNotes) { this.adjudicationNotes = adjudicationNotes; }
+
+    public LocalDateTime getRequestedAt() { return requestedAt; }
+    public void setRequestedAt(LocalDateTime requestedAt) { this.requestedAt = requestedAt; }
 
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }

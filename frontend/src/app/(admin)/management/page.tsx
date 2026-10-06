@@ -166,8 +166,19 @@ const modules: Record<
 
 function label(row: Row): string {
   const user = row.user as { fullName?: string } | undefined;
+  const claimant = row.claimant as { fullName?: string; phone?: string } | undefined;
+  const item = row.item as { id?: number; itemDescription?: string; reportedByName?: string } | undefined;
   const route = row.route as { origin?: string; destination?: string } | undefined;
   const reservation = row.reservation as { id?: number; passengerName?: string; totalFare?: number } | undefined;
+
+  // Specific format for Lost Item Ownership Claims
+  if (row.proofOfOwnership !== undefined || item !== undefined) {
+    const itemId = item?.id ? `Item #${item.id} (Docket LF-#${String(item.id).padStart(4, "0")})` : "Unspecified Item";
+    const itemDesc = item?.itemDescription ? `"${item.itemDescription}"` : "Lost Property";
+    const claimantInfo = claimant?.fullName ? `Claimant: ${claimant.fullName}` : "";
+    return `#${row.id} · ${itemId} - ${itemDesc} ${claimantInfo ? `· ${claimantInfo}` : ""}`;
+  }
+
   return (
     "#" +
     row.id +
@@ -254,7 +265,8 @@ export default function Management() {
     : tab === "cancellations" ? (data.cancellationRequests || [])
     : (data[activeModule.source] || []);
   const canDelete = staffType === "SYSTEM_ADMINISTRATOR" ||
-    (["routes", "buses", "groups"].includes(tab) && staffType === "OPERATIONS_MANAGER") ||
+    (["routes", "buses"].includes(tab) && staffType === "OPERATIONS_MANAGER") ||
+    (tab === "groups" && ["OPERATIONS_MANAGER", "FINANCE_MANAGER"].includes(staffType)) ||
     (tab === "parcels" && staffType === "BRANCH_MANAGER") ||
     (tab === "payments" && staffType === "FINANCE_MANAGER") ||
     (tab === "reservations" && staffType === "E_TICKETING_COORDINATOR") ||
@@ -328,6 +340,12 @@ export default function Management() {
           updated.customerId = booking ? relatedId(booking, "customer") : "";
           updated.scheduleId = booking ? relatedId(booking, "schedule") : "";
           updated.eventType = String(group.eventType || "");
+        }
+      } else if (tab === "claims") {
+        const cl = (data.claims || []).find((x) => x.id === selectedId);
+        if (cl) {
+          const currentClaimStatus = String(cl.claimStatus || "PENDING");
+          updated.status = currentClaimStatus === "APPROVED" ? "RETURNED" : currentClaimStatus === "PENDING" ? "APPROVED" : currentClaimStatus;
         }
       } else if (tab === "cancellations") {
         updated.decision = "APPROVE";
@@ -407,6 +425,13 @@ export default function Management() {
     if (tab === "payments") {
       path += "/verify";
       method = "POST";
+    }
+
+    if (tab === "claims") {
+      // Ensure only the status is sent to match ClaimDecision record
+      for (const k of Object.keys(payload)) {
+        if (k !== "status") delete payload[k];
+      }
     }
 
     if (tab === "cancellations") {
@@ -612,6 +637,47 @@ export default function Management() {
                       )}
                     </div>
                   ))}
+
+                  {tab === "claims" && selectedClaim && (
+                    <div className="p-4 rounded-xl bg-[#F7FAF9] border border-[#087478]/30 space-y-2.5 text-xs md:text-sm">
+                      <div className="flex items-center justify-between border-b border-[rgba(25,53,66,0.1)] pb-2">
+                        <span className="font-bold text-[#087478]">Ownership Claim Inspection</span>
+                        <span className="font-mono font-bold text-[#193542]">Claim #{selectedClaim.id}</span>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                        <div>
+                          <span className="text-[#5E7480] block text-[11px]">Associated Lost Item / Docket</span>
+                          <strong className="text-[#193542] font-semibold">
+                            Item #{(selectedClaim.item as Row | undefined)?.id} (Docket LF-#{String((selectedClaim.item as Row | undefined)?.id || "").padStart(4, "0")})
+                          </strong>
+                        </div>
+                        <div>
+                          <span className="text-[#5E7480] block text-[11px]">Item Description</span>
+                          <strong className="text-[#193542] font-semibold">
+                            {String((selectedClaim.item as Row | undefined)?.itemDescription || "—")}
+                          </strong>
+                        </div>
+                        <div>
+                          <span className="text-[#5E7480] block text-[11px]">Claimant (Passenger)</span>
+                          <strong className="text-[#193542] font-semibold">
+                            {String((selectedClaim.claimant as Row | undefined)?.fullName || (selectedClaim.claimant as Row | undefined)?.email || "Registered Passenger")}
+                          </strong>
+                        </div>
+                        <div>
+                          <span className="text-[#5E7480] block text-[11px]">Current Custody Status</span>
+                          <strong className="text-[#193542] font-semibold uppercase">
+                            {String((selectedClaim.item as Row | undefined)?.status || "FOUND")}
+                          </strong>
+                        </div>
+                      </div>
+                      <div className="pt-2 border-t border-[rgba(25,53,66,0.1)]">
+                        <span className="text-[#5E7480] block text-[11px]">Submitted Proof of Ownership:</span>
+                        <p className="mt-1 p-2 rounded-lg bg-white border border-[rgba(25,53,66,0.12)] text-[#193542] font-medium leading-relaxed">
+                          {String(selectedClaim.proofOfOwnership || "No proof text provided")}
+                        </p>
+                      </div>
+                    </div>
+                  )}
                 </fieldset>
 
                 <Button
@@ -766,8 +832,13 @@ export default function Management() {
                             {label(row)}
                           </h3>
                           <div className="flex items-center gap-2 mt-1">
-                            <Badge variant="gold" className="text-xs uppercase tracking-wider px-2 py-0.5">
-                              {String(row.staffType || row.status || row.claimStatus || row.busType || "ACTIVE")}
+                            <Badge
+                              variant={row.status === "CANCELLED" ? "danger" : "gold"}
+                              className={`text-xs uppercase tracking-wider px-2 py-0.5 ${row.status === "CANCELLED" ? "bg-rose-100 text-rose-800 border-rose-300 font-bold" : ""}`}
+                            >
+                              {tab === "groups" && row.status === "CANCELLED" && String(row.cancellationReason || "").toLowerCase().includes("customer")
+                                ? "CANCELLED BY CUSTOMER"
+                                : String(row.staffType || row.status || row.claimStatus || row.busType || "ACTIVE")}
                             </Badge>
                           </div>
                         </div>
@@ -781,8 +852,15 @@ export default function Management() {
                         </div>
                       </div>
 
+                      {tab === "groups" && !!row.cancellationReason && (
+                        <div className="text-xs text-rose-700 mt-2.5 p-2.5 rounded-lg bg-rose-50/80 border border-rose-200">
+                          <span className="font-semibold text-rose-900">Cancellation Details:</span>{" "}
+                          {String(row.cancellationReason as string)}
+                        </div>
+                      )}
+
                       {row.proofOfOwnership !== undefined && (
-                        <div className="text-xs text-[#516A74] mt-2.5 p-2.5 rounded-lg bg-[#FFFFFF] border border-[rgba(25,53,66,0.12)]">
+                        <div className="text-xs text-[#5E7480] mt-2.5 p-2.5 rounded-lg bg-[#FFFFFF] border border-[rgba(25,53,66,0.12)]">
                           <span className="font-semibold text-[#087478]">Proof:</span> {String(row.proofOfOwnership)}
                         </div>
                       )}

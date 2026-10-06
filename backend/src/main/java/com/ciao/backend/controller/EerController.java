@@ -56,12 +56,42 @@ public class EerController {
 
     private static final Set<String> TYPES = Set.of("SYSTEM_ADMINISTRATOR","BRANCH_MANAGER","OPERATIONS_MANAGER","FINANCE_MANAGER","E_TICKETING_COORDINATOR","CUSTOMER_SERVICE_SUPERVISOR");
     private User user() {
-        User u = eer.currentUser(); if (u == null) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED); return u;
+        User u = eer.currentUser();
+        if (u == null) {
+            org.springframework.security.core.Authentication auth = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+            if (auth != null && auth.isAuthenticated() && !"anonymousUser".equals(auth.getPrincipal())) {
+                String name = auth.getName();
+                if (name != null && !name.isBlank()) {
+                    u = users.findByEmailIgnoreCase(name)
+                            .or(() -> users.findByUsernameIgnoreCase(name))
+                            .or(() -> users.findByPhone(name))
+                            .orElse(null);
+                }
+            }
+        }
+        if (u == null) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED);
+        return u;
     }
     private StaffProfile permit(String... types) {
-        User u=user(); eer.profile(u);
-        StaffProfile p=staff.findByUserId(u.getId()).orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN));
-        if (!p.getStaffType().equals("SYSTEM_ADMINISTRATOR") && !Arrays.asList(types).contains(p.getStaffType())) throw new ResponseStatusException(HttpStatus.FORBIDDEN,"This action requires the appropriate staff role.");
+        User u=user();
+        Optional<StaffProfile> maybeProfile = staff.findByUserId(u.getId());
+        if (maybeProfile.isEmpty()) {
+            if (u.getRole() != null && "ADMIN".equalsIgnoreCase(u.getRole().getRoleName().replace("ROLE_", "").trim())) {
+                // Synthesize or find admin profile
+                return staff.findAll().stream()
+                        .filter(sp -> "SYSTEM_ADMINISTRATOR".equals(sp.getStaffType()))
+                        .findFirst()
+                        .orElse(null);
+            }
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Staff account required.");
+        }
+        StaffProfile p = maybeProfile.get();
+        if (!"SYSTEM_ADMINISTRATOR".equals(p.getStaffType()) && !Arrays.asList(types).contains(p.getStaffType())) {
+            if (u.getRole() != null && "ADMIN".equalsIgnoreCase(u.getRole().getRoleName().replace("ROLE_", "").trim())) {
+                return p;
+            }
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,"This action requires the appropriate staff role.");
+        }
         return p;
     }
     private <T> T require(Optional<T> value) { return value.orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,"Record not found")); }
@@ -75,7 +105,8 @@ public class EerController {
     public Map<String, Object> deleteManagedRecord(@PathVariable String module, @PathVariable Integer id) {
         switch (module) {
             case "staff", "branches" -> permit();
-            case "routes", "buses", "schedules", "drivers", "groups" -> permit("OPERATIONS_MANAGER");
+            case "routes", "buses", "schedules", "drivers" -> permit("OPERATIONS_MANAGER");
+            case "groups" -> permit("OPERATIONS_MANAGER", "FINANCE_MANAGER");
             case "parcels" -> permit("BRANCH_MANAGER");
             case "payments" -> permit("FINANCE_MANAGER");
             case "claims", "cancellations", "lost-items" -> permit("CUSTOMER_SERVICE_SUPERVISOR");
@@ -108,7 +139,7 @@ public class EerController {
         Map<String,Object> result = new HashMap<>(Map.ofEntries(Map.entry("staff",staff.findAll()),Map.entry("branches",branches.findAll()),Map.entry("customers",customers.findAll()),
             Map.entry("routes",routes.findAll()),Map.entry("stops",stops.findAll()),Map.entry("buses",buses.findAll()),Map.entry("drivers",drivers.findAll()),
             Map.entry("schedules",schedules.findAll()),Map.entry("parcels",parcels.findAll()),Map.entry("groups",groups.findAll()),
-            Map.entry("payments",payments.findAll()),Map.entry("claims",claims.findAll()),Map.entry("lostItems",lostItems.findAll()), Map.entry("reservations",reservations.findAll()),
+            Map.entry("payments",payments.findAll()),Map.entry("claims",claims.findWithDetailsAll()),Map.entry("lostItems",lostItems.findAll()), Map.entry("reservations",reservations.findAll()),
             Map.entry("cancellationRequests",cancellationRequests.findAll())));
         String type=actor.getStaffType();
         List<String> allowed=permissions(type);
@@ -603,64 +634,135 @@ public class EerController {
     }
     public record ClaimInput(@NotNull Integer itemId,@NotBlank @Size(max=2000) String proofOfOwnership) {}
     @PostMapping("/claims") public LostItemClaim claim(@Valid @RequestBody ClaimInput input) {
-        User u=user();LostItem item=require(lostItems.findById(input.itemId()));
-        check(item.getStatus()==LostItemStatus.FOUND || item.getStatus()==LostItemStatus.LOST,"Item is already claimed or returned.");
-        LostItemClaim c=new LostItemClaim();c.setItem(item);c.setClaimant(u);c.setProofOfOwnership(input.proofOfOwnership());c.setClaimStatus("PENDING");c.setClaimDate(LocalDateTime.now());return claims.save(c);
+        User u = user();
+        LostItem item = require(lostItems.findById(input.itemId()));
+        check(item.getStatus() == LostItemStatus.FOUND, "Ownership claims can only be submitted for items currently in FOUND status.");
+        
+        LostItemClaim c=new LostItemClaim();c.setItem(item);c.setClaimant(u);c.setProofOfOwnership(input.proofOfOwnership());c.setClaimStatus("PENDING");c.setClaimDate(LocalDateTime.now());
+        c = claims.save(c);
+
+        // Notify Claimant (Passenger)
+        Notification un = new Notification();
+        un.setUser(u);
+        un.setTitle("Ownership Claim Logged");
+        un.setNotificationType("CLAIM_SUBMITTED");
+        un.setMessage("[Claim #" + c.getId() + "] Your ownership verification claim for Item #" + item.getId() + " (" + item.getItemDescription() + ") has been submitted for staff review.");
+        un.setSentAt(LocalDateTime.now());
+        notifications.save(un);
+
+        // Notify Customer Service Supervisors
+        List<StaffProfile> supervisors = staff.findByStaffType("CUSTOMER_SERVICE_SUPERVISOR");
+        for (StaffProfile sp : supervisors) {
+            if (sp.getUser() != null) {
+                Notification sn = new Notification();
+                sn.setUser(sp.getUser());
+                sn.setTitle("New Lost Item Claim");
+                sn.setNotificationType("CLAIM_SUBMITTED");
+                sn.setMessage("[Action Required] New claim submitted for item: " + item.getItemDescription() + " (Claim #" + c.getId() + ").");
+                sn.setSentAt(LocalDateTime.now());
+                notifications.save(sn);
+            }
+        }
+        return c;
     }
     @GetMapping("/my-claims") public List<LostItemClaim> myClaims() {
-        return claims.findAll().stream().filter(c -> c.getClaimant() != null && c.getClaimant().getId().equals(user().getId())).toList();
+        return claims.findWithDetailsByClaimantId(user().getId());
     }
     public record ClaimDecision(@NotBlank String status) {}
     @PutMapping("/claims/{id}") public LostItemClaim decideClaim(@PathVariable Integer id,@Valid @RequestBody ClaimDecision input) {
-        StaffProfile p = permit("CUSTOMER_SERVICE_SUPERVISOR"); 
-        LostItemClaim c = require(claims.findById(id));
-        String currentStatus = c.getClaimStatus();
-        String next = input.status();
-        check((currentStatus.equals("PENDING") && Set.of("APPROVED","REJECTED").contains(next)) || (currentStatus.equals("APPROVED") && next.equals("RETURNED")), "Invalid claim transition.");
-        
-        LostItem item = c.getItem();
-        if (next.equals("APPROVED")) {
-            check(item.getStatus() == LostItemStatus.FOUND, "The item must be in FOUND status before a claim can be approved. Current status: " + item.getStatus());
-            // Item-level atomic transition: Lock and transition item from FOUND to CLAIMED
-            int itemRows = lostItems.atomicTransitionItem(item.getId(), LostItemStatus.FOUND, LostItemStatus.CLAIMED, p);
-            check(itemRows > 0, "Conflict detected: This item was already claimed or approved for another claimant.");
-        } else if (next.equals("RETURNED")) {
-            check(item.getStatus() == LostItemStatus.CLAIMED, "The item must be in CLAIMED status before it can be marked as RETURNED.");
-            int itemRows = lostItems.atomicTransitionItem(item.getId(), LostItemStatus.CLAIMED, LostItemStatus.RETURNED, p);
-            check(itemRows > 0, "Conflict detected: This item was already returned or updated by another transaction.");
-        }
-
-        int rows = claims.atomicDecideClaim(id, currentStatus, next, p);
-        if (rows == 0) {
-            // Rollback item status if claim update failed
+        try {
+            System.out.println(">>> DECIDE_CLAIM START: id=" + id + ", status=" + (input != null ? input.status() : "null"));
+            StaffProfile p = permit("CUSTOMER_SERVICE_SUPERVISOR"); 
+            LostItemClaim c = require(claims.findById(id));
+            String currentStatus = c.getClaimStatus();
+            String next = input.status();
+            System.out.println(">>> DECIDE_CLAIM: currentStatus=" + currentStatus + ", next=" + next);
+            check((currentStatus.equals("PENDING") && Set.of("APPROVED","REJECTED").contains(next)) || (currentStatus.equals("APPROVED") && next.equals("RETURNED")), "Invalid claim transition.");
+            
+            LostItem item = c.getItem();
             if (next.equals("APPROVED")) {
-                lostItems.atomicTransitionItem(item.getId(), LostItemStatus.CLAIMED, LostItemStatus.FOUND, p);
+                check(item.getStatus() == LostItemStatus.FOUND, "The item must be in FOUND status before a claim can be approved. Current status: " + item.getStatus());
+                int itemRows = lostItems.atomicTransitionItem(item.getId(), LostItemStatus.FOUND, LostItemStatus.CLAIMED, p);
+                check(itemRows > 0, "Conflict detected: This item was already claimed or approved for another claimant.");
+            } else if (next.equals("RETURNED")) {
+                check(item.getStatus() == LostItemStatus.CLAIMED || item.getStatus() == LostItemStatus.FOUND, "The item must be in CLAIMED or FOUND status before it can be marked as RETURNED. Current status: " + item.getStatus());
+                int itemRows = lostItems.atomicTransitionItem(item.getId(), item.getStatus(), LostItemStatus.RETURNED, p);
+                check(itemRows > 0, "Conflict detected: This item was already returned or updated by another transaction.");
             }
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Conflict detected: This claim was already updated by another supervisor.");
+
+            int rows = claims.atomicDecideClaim(id, currentStatus, next, p);
+            if (rows == 0) {
+                if (next.equals("APPROVED")) {
+                    lostItems.atomicTransitionItem(item.getId(), LostItemStatus.CLAIMED, LostItemStatus.FOUND, p);
+                }
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Conflict detected: This claim was already updated by another supervisor.");
+            }
+            
+            c = require(claims.findById(id));
+            c.setClaimStatus(next);
+            c.getItem().setHandledBy(p);
+            if (next.equals("APPROVED")) c.getItem().setStatus(LostItemStatus.CLAIMED);
+            if (next.equals("RETURNED")) {
+                c.setReturnedAt(LocalDateTime.now());
+                c.getItem().setStatus(LostItemStatus.RETURNED);
+            }
+            claims.save(c);
+            lostItems.save(c.getItem());
+            
+            Notification n = new Notification();
+            n.setUser(c.getClaimant());
+            if (next.equals("RETURNED")) {
+                n.setTitle("Lost Property Handed Over & Discharged");
+                n.setNotificationType("CLAIM_RETURNED");
+                n.setMessage("[Handover Complete] Your claimed property '" + c.getItem().getItemDescription() + "' (Docket LF-#" + String.format("%04d", c.getItem().getId()) + ") has been officially discharged and handed over to you.");
+            } else if (next.equals("APPROVED")) {
+                n.setTitle("Lost Property Claim Approved");
+                n.setNotificationType("CLAIM_APPROVED");
+                n.setMessage("[Claim Approved] Your claim for '" + c.getItem().getItemDescription() + "' (Docket LF-#" + String.format("%04d", c.getItem().getId()) + ") has been approved. Please visit the station counter to collect it.");
+            } else {
+                n.setTitle("Lost Item Claim Update");
+                n.setNotificationType("CLAIM_UPDATE");
+                n.setMessage("[Lost Item Claim Update] Your lost-item claim #" + id + " has been marked as " + next + ".");
+            }
+            n.setSentAt(LocalDateTime.now());
+            notifications.save(n);
+            System.out.println(">>> DECIDE_CLAIM SUCCESS: id=" + id);
+            return c;
+        } catch (Throwable t) {
+            System.err.println(">>> DECIDE_CLAIM EXCEPTION for id=" + id + ": " + t.getClass().getName() + " -> " + t.getMessage());
+            t.printStackTrace();
+            if (t instanceof ResponseStatusException rse) throw rse;
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Claim update failed: " + t.getMessage(), t);
         }
-        
-        c = require(claims.findById(id));
-        c.setClaimStatus(next);
-        c.getItem().setHandledBy(p);
-        if (next.equals("APPROVED")) c.getItem().setStatus(LostItemStatus.CLAIMED);
-        if (next.equals("RETURNED")) {
-            c.setReturnedAt(LocalDateTime.now());
-            c.getItem().setStatus(LostItemStatus.RETURNED);
-        }
-        claims.save(c);
-        lostItems.save(c.getItem());
-        
-        Notification n = new Notification();
-        n.setUser(c.getClaimant());
-        n.setTitle("Lost Item Claim Update");
-        n.setNotificationType("CLAIM_UPDATE");
-        n.setMessage("[Lost Item Claim Update] Your lost-item claim #" + id + " has been marked as " + next + ".");
-        n.setSentAt(LocalDateTime.now());
-        notifications.save(n);
-        return c;
     }
-    @GetMapping("/notifications") public List<Notification> inbox(){return notifications.findByUserIdOrderBySentAtDesc(user().getId());}
-    @PostMapping("/notifications/{id}/read") public Notification read(@PathVariable Integer id){Notification n=require(notifications.findById(id));check(n.getUser().getId().equals(user().getId()),"Notification does not belong to you.");n.setReadAt(LocalDateTime.now());return notifications.save(n);}
+    @GetMapping("/notifications")
+    public List<Notification> inbox() {
+        return notifications.findByUserIdOrderBySentAtDesc(user().getId());
+    }
+
+    @PostMapping("/notifications/{id}/read")
+    public Notification read(@PathVariable Integer id) {
+        Notification n = require(notifications.findById(id));
+        check(n.getUser().getId().equals(user().getId()), "Notification does not belong to you.");
+        n.setReadAt(LocalDateTime.now());
+        n.setReadStatus(true);
+        return notifications.save(n);
+    }
+
+    @PostMapping("/notifications/read-all")
+    public Map<String, Object> readAll() {
+        User u = user();
+        List<Notification> userNotifs = notifications.findByUserIdOrderBySentAtDesc(u.getId());
+        LocalDateTime now = LocalDateTime.now();
+        for (Notification n : userNotifs) {
+            if (n.getReadAt() == null || Boolean.FALSE.equals(n.getReadStatus())) {
+                n.setReadAt(now);
+                n.setReadStatus(true);
+                notifications.save(n);
+            }
+        }
+        return Map.of("success", true, "updated", userNotifs.size());
+    }
     public record ProfileInput(@NotBlank String firstName,@NotBlank String lastName,@NotBlank String address,@NotBlank @Pattern(regexp="[A-Za-z][A-Za-z0-9_]{2,39}") String username,List<@Pattern(regexp="[+0-9 -]{7,20}") String> phoneNumbers){}
     @GetMapping("/profile") public Map<String,Object> profile(){User u=user();eer.profile(u);return Map.of("user",u,"customer",customers.findByUserId(u.getId()).<Object>map(x->x).orElse(Map.of()),"staff",staff.findByUserId(u.getId()).<Object>map(x->x).orElse(Map.of()),"phones",phones.findAll().stream().filter(x->x.getUser().getId().equals(u.getId())).toList());}
     @PutMapping("/profile") public CustomerProfile profile(@Valid @RequestBody ProfileInput input){
@@ -747,11 +849,15 @@ public class EerController {
 
     @PostMapping("/reservations/{id}/cancel-request")
     public Map<String, Object> requestCancellation(@PathVariable Integer id, @Valid @RequestBody CancelRequestInput input) {
+        System.out.println(">>> ENTERED requestCancellation: id=" + id + ", reason=" + (input != null ? input.reason() : "null"));
         User u = user();
+        System.out.println(">>> user() resolved to: " + (u != null ? u.getEmail() : "null"));
         Reservation r = require(reservations.findByIdForUpdate(id));
         // Guest reservations have no authenticated account owner. They require a
         // separate verified staff-assisted workflow; an ID alone proves nothing.
-        if (r.getUser() == null || !r.getUser().getId().equals(u.getId())) {
+        boolean isStaffOrAdmin = u.getRole() != null &&
+            (u.getRole().getRoleName().contains("ADMIN") || u.getRole().getRoleName().contains("STAFF"));
+        if (!isStaffOrAdmin && (r.getUser() == null || !r.getUser().getId().equals(u.getId()))) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Reservation does not belong to you.");
         }
         check(r.getStatus() == Reservation.ReservationStatus.CONFIRMED, "Only confirmed reservations can be submitted for cancellation/refund.");
@@ -781,6 +887,20 @@ public class EerController {
         n.setMessage("[Cancellation Request #" + cr.getId() + "] Your cancellation request for booking #" + r.getId() + " (" + input.reason() + ") has been submitted to Customer Service.");
         n.setSentAt(LocalDateTime.now());
         notifications.save(n);
+
+        // Notify Customer Service Supervisors
+        List<StaffProfile> supervisors = staff.findByStaffType("CUSTOMER_SERVICE_SUPERVISOR");
+        for (StaffProfile sp : supervisors) {
+            if (sp.getUser() != null) {
+                Notification sn = new Notification();
+                sn.setUser(sp.getUser());
+                sn.setTitle("New Cancellation Request");
+                sn.setNotificationType("REFUND_REQUEST");
+                sn.setMessage("[Action Required] Passenger " + r.getPassengerName() + " requested cancellation for booking #" + r.getId() + " (" + input.reason() + ").");
+                sn.setSentAt(LocalDateTime.now());
+                notifications.save(sn);
+            }
+        }
 
         return Map.of(
             "requestId", cr.getId(),

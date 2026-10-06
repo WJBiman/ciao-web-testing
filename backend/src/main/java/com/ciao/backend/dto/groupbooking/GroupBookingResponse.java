@@ -23,6 +23,9 @@ public class GroupBookingResponse {
     private BigDecimal totalCost;
     private BigDecimal depositAmount;
     private String status;
+    private String cancellationReason;
+    public String getCancellationReason() { return cancellationReason; }
+    public void setCancellationReason(String value) { cancellationReason = value; }
     private Integer assignedBusId;
     private String guestAccessToken;
     private LocalDateTime createdAt;

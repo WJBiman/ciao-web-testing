@@ -8,6 +8,7 @@ import {
   Menu,
   X,
   User,
+  Bell,
   LogOut,
   Ticket,
   ShieldAlert,
@@ -24,11 +25,45 @@ export default function Header() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [authError, setAuthError] = useState("");
   const [loggingOut, setLoggingOut] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  useEffect(() => {
+    if (!currentUser) {
+      setUnreadCount(0);
+      return;
+    }
+    let active = true;
+    const checkNotifications = async () => {
+      try {
+        const res = await fetch("/api/eer/notifications", { credentials: "include" });
+        if (res.ok && active) {
+          const data = await res.json();
+          if (Array.isArray(data)) {
+            const count = data.filter((n: { readStatus?: boolean; readAt?: string | null }) => !n.readStatus && !n.readAt).length;
+            setUnreadCount(count);
+          }
+        }
+      } catch {
+        // ignore network error
+      }
+    };
+
+    void checkNotifications();
+    const interval = setInterval(checkNotifications, 10000);
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, [currentUser, authVersion, pathname]);
 
   useEffect(() => {
     const handleAuthChange = () => setAuthVersion((v) => v + 1);
     window.addEventListener("ciao_auth_change", handleAuthChange);
-    return () => window.removeEventListener("ciao_auth_change", handleAuthChange);
+    window.addEventListener("ciao_notification_change", handleAuthChange);
+    return () => {
+      window.removeEventListener("ciao_auth_change", handleAuthChange);
+      window.removeEventListener("ciao_notification_change", handleAuthChange);
+    };
   }, []);
 
   useEffect(() => {
@@ -136,6 +171,18 @@ export default function Header() {
                 </Link>
               )}
               <Link
+                href="/profile?tab=notifications"
+                title="Notifications"
+                className="relative flex items-center justify-center w-9 h-9 rounded-xl text-[#516A74] hover:text-[#087478] hover:bg-[#EAF3F0] transition-colors border border-transparent hover:border-[#087478]/30"
+              >
+                <Bell className="w-4 h-4" />
+                {unreadCount > 0 && (
+                  <span className="absolute -top-1 -right-1 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-extrabold text-white shadow-sm ring-2 ring-white">
+                    {unreadCount > 9 ? "9+" : unreadCount}
+                  </span>
+                )}
+              </Link>
+              <Link
                 href="/profile"
                 className="flex items-center gap-1.5 text-sm font-semibold text-[#193542] bg-[#EAF3F0] border border-[rgba(203,213,225,0.16)] hover:border-[#087478]/50 transition-colors py-2 px-3.5 rounded-xl"
               >
@@ -217,14 +264,24 @@ export default function Header() {
                     <div className="text-xs text-[#516A74]">{currentUser.email}</div>
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-2 pt-2">
+                <div className="grid grid-cols-3 gap-2 pt-2">
                   <Link href="/my-bookings" onClick={() => setMobileMenuOpen(false)}>
-                    <Button variant="outline" size="sm" className="w-full text-sm">
+                    <Button variant="outline" size="sm" className="w-full text-xs px-1">
                       My Bookings
                     </Button>
                   </Link>
+                  <Link href="/profile?tab=notifications" onClick={() => setMobileMenuOpen(false)}>
+                    <Button variant="outline" size="sm" className="w-full text-xs px-1 relative">
+                      Alerts
+                      {unreadCount > 0 && (
+                        <span className="ml-1 bg-rose-500 text-white text-[10px] font-bold px-1.5 py-0.2 rounded-full">
+                          {unreadCount}
+                        </span>
+                      )}
+                    </Button>
+                  </Link>
                   <Link href="/profile" onClick={() => setMobileMenuOpen(false)}>
-                    <Button variant="outline" size="sm" className="w-full text-sm">
+                    <Button variant="outline" size="sm" className="w-full text-xs px-1">
                       Profile
                     </Button>
                   </Link>

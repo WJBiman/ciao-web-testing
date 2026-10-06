@@ -102,6 +102,72 @@
 
 ---
 
+## 📐 Software Engineering Design Patterns Applied
+
+To ensure high cohesion, low coupling, maintainability, and strict adherence to **SOLID design principles**, the CIAO system architecture integrates three classical Gang of Four (GoF) design patterns across all six individual member modules:
+
+```
+                            ┌──────────────────────────────────────────────┐
+                            │      CIAO Architecture Design Patterns       │
+                            └──────┬───────────────┬───────────────┬───────┘
+                                   │               │               │
+                 ┌─────────────────┴─┐   ┌─────────┴─────────┐   ┌─┴────────────────┐
+                 │  FACTORY METHOD   │   │     STRATEGY      │   │     OBSERVER     │
+                 │   (Creational)    │   │   (Behavioral)    │   │   (Behavioral)   │
+                 └───────────────────┘   └───────────────────┘   └──────────────────┘
+```
+
+### 1. Creational Pattern: Factory Method Pattern
+* **Assigned Members:** 
+  - **Warushawithana J.B. (IT25100691)** — `ScheduleTripFactory` (Route & Timetable Management)
+  - **De Silva Y.Y.S. (IT25101753)** — `BusFleetFactory` (Bus Fleet & Driver Records)
+* **Design Problem & Motivation:**
+  - Instantiating transit schedules requires distinct business rules: **Daily Recurring Schedules** require automated recurrence frequency calculation and interval linking, whereas **Express Direct Schedules** enforce strict point-to-point highway terminal configurations.
+  - Creating bus fleet entities requires configuring distinct seating capacities, luggage compartments, and luxury amenity tiers (e.g., Luxury AC, Semi-Luxury, Mini-Charter). Hardcoding `new Bus(...)` directly in services violates the **Open/Closed Principle (OCP)**.
+* **How It Improves the Design:**
+  - Encapsulates object creation behind abstract factory interfaces.
+  - Client services (`ScheduleService`, `BusService`) depend only on common contracts, allowing new bus types or trip generator templates to be plugged in without modifying core scheduling logic.
+* **Implementation Files:**
+  - `backend/src/main/java/com/ciao/backend/pattern/factory/schedule/` — `ScheduleTripFactory`, `ScheduleTripFactoryProvider`, `DailyRecurringScheduleFactory`, `ExpressDirectScheduleFactory`
+  - `backend/src/main/java/com/ciao/backend/pattern/factory/bus/` — `BusFleetFactory`, `BusSpecification`, `LuxuryAcBusSpecification`, `SemiLuxuryBusSpecification`, `MiniCharterBusSpecification`
+  - `backend/src/main/java/com/ciao/backend/service/ScheduleService.java` & `BusService.java`
+
+---
+
+### 2. Behavioral Pattern: Strategy Pattern
+* **Assigned Members:**
+  - **Jahaas M.J.M. (IT25102586)** — `FareCalculationStrategy` (Seat Allocation & Dynamic Fare Calculation)
+  - **Dahanayaka T.S. (IT25103474)** — `PaymentProcessingStrategy` (Payment & E-Ticket Settlement)
+* **Design Problem & Motivation:**
+  - Sri Lanka's National Transport Commission (NTC) enforces standard stage-based bus fare calculations for normal provincial routes. In contrast, Expressway Luxury routes incur expressway toll charges, distance brackets, and luxury AC surcharges.
+  - Payment settlement must support interchangeable checkout channels (Credit/Debit Card validation vs. Bank Transfer Deposit Slip verification) without sprawling `if-else` or `switch` statements inside the checkout service.
+* **How It Improves the Design:**
+  - Encapsulates each algorithmic variation into isolated, testable strategy classes conforming to a common interface.
+  - Strategies can be chosen and executed dynamically at runtime via Context classes (`FareCalculationContext`, `PaymentProcessingContext`) based on route flags or user payment selection, adhering to the **Single Responsibility Principle (SRP)**.
+* **Implementation Files:**
+  - `backend/src/main/java/com/ciao/backend/pattern/strategy/fare/` — `FareCalculationStrategy`, `StandardNtcFareStrategy`, `ExpresswayLuxuryFareStrategy`, `FareCalculationContext`
+  - `backend/src/main/java/com/ciao/backend/pattern/strategy/payment/` — `PaymentProcessingStrategy`, `CreditCardPaymentStrategy`, `BankTransferPaymentStrategy`, `PaymentProcessingContext`
+  - `backend/src/main/java/com/ciao/backend/service/NTCFareCalculator.java` & `PaymentService.java`
+
+---
+
+### 3. Behavioral Pattern: Observer Pattern
+* **Assigned Members:**
+  - **Sampath M.V. (IT25103647)** — `ParcelTrackingSubject` (Parcel Logistics & Tracking)
+  - **Govinna G.N.C. (IT25101627)** — `GroupBookingSubject` (Group Charter Booking Management)
+* **Design Problem & Motivation:**
+  - When a cargo parcel status changes (`PENDING` $\rightarrow$ `IN_TRANSIT` $\rightarrow$ `DELIVERED`), multiple loosely coupled subsystems need immediate notification: customer SMS alerts and destination branch terminal inventory records.
+  - When a group charter request transitions state (`SUBMITTED` $\rightarrow$ `APPROVED` $\rightarrow$ `DEPOSIT_PAID` $\rightarrow$ `CANCELLED`), both customer notification gateways and operations financial audit ledgers must react in real time.
+* **How It Improves the Design:**
+  - Establishes a clean **One-to-Many publish-subscribe dependency** between state providers (Subjects) and reactive listeners (Observers).
+  - Eliminates tight coupling: `ParcelService` and `GroupBookingService` trigger events without needing knowledge of email gateways, SMS services, or analytics loggers.
+* **Implementation Files:**
+  - `backend/src/main/java/com/ciao/backend/pattern/observer/parcel/` — `ParcelTrackingSubject`, `ParcelTrackingObserver`, `ParcelCustomerSmsAlertObserver`, `ParcelBranchOperationsAlertObserver`
+  - `backend/src/main/java/com/ciao/backend/pattern/observer/group/` — `GroupBookingSubject`, `GroupBookingObserver`, `GroupBookingCustomerAlertObserver`, `GroupBookingFinanceAuditObserver`
+  - `backend/src/main/java/com/ciao/backend/service/ParcelService.java` & `GroupBookingService.java`
+
+---
+
 ## 🏛️ System Architecture & Technology Stack
 
 ```

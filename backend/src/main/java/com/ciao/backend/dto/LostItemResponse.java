@@ -18,6 +18,10 @@ public class LostItemResponse {
     // Route info
     private Integer routeId;
     private String routeName;
+    // Ownership Claim info
+    private Integer approvedClaimId;
+    private Boolean hasApprovedClaim;
+    private Integer pendingClaimsCount;
 
     public LostItemResponse() {
     }
@@ -100,5 +104,29 @@ public class LostItemResponse {
 
     public void setRouteName(String routeName) {
         this.routeName = routeName;
+    }
+
+    public Integer getApprovedClaimId() {
+        return approvedClaimId;
+    }
+
+    public void setApprovedClaimId(Integer approvedClaimId) {
+        this.approvedClaimId = approvedClaimId;
+    }
+
+    public Boolean getHasApprovedClaim() {
+        return hasApprovedClaim;
+    }
+
+    public void setHasApprovedClaim(Boolean hasApprovedClaim) {
+        this.hasApprovedClaim = hasApprovedClaim;
+    }
+
+    public Integer getPendingClaimsCount() {
+        return pendingClaimsCount;
+    }
+
+    public void setPendingClaimsCount(Integer pendingClaimsCount) {
+        this.pendingClaimsCount = pendingClaimsCount;
     }
 }

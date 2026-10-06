@@ -141,14 +141,13 @@ public class HardDeleteService {
                     exists("group_bookings", id);
                     String status = jdbc.queryForObject("SELECT status FROM group_bookings WHERE id = ?", String.class, id);
                     if (!"PENDING_REVIEW".equals(status) && !"CANCELLED".equals(status)) {
-                        throw new ResponseStatusException(HttpStatus.CONFLICT, "Only pending or cancelled unpaid group requests can be permanently deleted.");
+                        throw new ResponseStatusException(HttpStatus.CONFLICT, "Only pending or cancelled group requests can be permanently deleted.");
                     }
                     Integer bookingId = jdbc.queryForObject("SELECT booking_id FROM group_bookings WHERE id = ?", Integer.class, id);
                     if (bookingId != null) {
-                        unlinked(bookingId, "group booking",
-                                "SELECT COUNT(*) FROM payments WHERE booking_id = ?",
-                                "SELECT COUNT(*) FROM reservations WHERE booking_id = ?",
-                                "SELECT COUNT(*) FROM notifications WHERE booking_id = ?");
+                        jdbc.update("UPDATE notifications SET booking_id = NULL WHERE booking_id = ?", bookingId);
+                        jdbc.update("UPDATE payments SET booking_id = NULL WHERE booking_id = ?", bookingId);
+                        jdbc.update("DELETE FROM reservations WHERE booking_id = ?", bookingId);
                         Integer scheduleId = jdbc.queryForObject("SELECT schedule_id FROM bookings WHERE id = ?", Integer.class, bookingId);
                         if (scheduleId != null) {
                             jdbc.update("UPDATE schedules SET is_charter = false WHERE id = ?", scheduleId);

@@ -47,25 +47,28 @@ public final class NTCFareCalculator {
         return MULTIPLIER_NORMAL;
     }
 
+    // =========================================================================================
+    // DESIGN PATTERN: STRATEGY PATTERN (Behavioral)
+    // ASSIGNED MEMBER: Jahaas M.J.M. (IT25102586)
+    // COMPONENT: Seat Allocation & Dynamic Fare Calculation
+    // EXPLANATION: Dynamically delegates fare calculation to either StandardNtcFareStrategy
+    //              or ExpresswayLuxuryFareStrategy based on bus tier and route expressway flag.
+    // =========================================================================================
     public static BigDecimal calculateSeatFare(Route route, Bus bus) {
         if (route == null || route.getBaseFare() == null) {
             return BigDecimal.ZERO;
         }
-        BigDecimal baseFare = route.getBaseFare();
-        String busType = (bus != null) ? bus.getBusType() : null;
-        BigDecimal multiplier = getTierMultiplier(busType);
-
-        BigDecimal seatFare = baseFare.multiply(multiplier);
-
-        // Add expressway toll surcharge for Super Luxury / Expressway service
-        if (busType != null) {
-            String normalized = busType.trim().toUpperCase().replace("-", "_").replace(" ", "_");
-            if (normalized.contains("EXPRESSWAY") || normalized.contains("SUPER_LUXURY") || normalized.contains("SUPERLUXURY")) {
-                seatFare = seatFare.add(EXPRESSWAY_TOLL);
-            }
-        }
-
-        return seatFare.setScale(2, RoundingMode.HALF_UP);
+        com.ciao.backend.pattern.strategy.fare.FareCalculationStrategy strategy =
+                com.ciao.backend.pattern.strategy.fare.FareCalculationContext.resolveStrategy(bus, route);
+        BigDecimal fare = strategy.calculateFare(route, bus);
+        
+        // Operational Audit: Dynamic Fare Resolution Event (Assigned Member: Jahaas M.J.M. - IT25102586)
+        System.out.println("[STRATEGY: FARE-CALCULATION] Executed " + strategy.getStrategyName() 
+                + " for Bus [" + (bus != null ? bus.getPlateNumber() + " (" + bus.getBusType() + ")" : "N/A") 
+                + "] on Route [" + (route != null ? route.getOrigin() + " -> " + route.getDestination() : "N/A") 
+                + "] -> Calculated Seat Fare: LKR " + fare);
+        
+        return fare;
     }
 
     public static BigDecimal calculateSeatFare(Schedule schedule) {

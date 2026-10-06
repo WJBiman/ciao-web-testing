@@ -9,7 +9,10 @@ import {
   Search, 
   CheckCircle2, 
   CreditCard, 
-  Lock
+  Lock,
+  XCircle,
+  AlertTriangle,
+  X
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
@@ -28,6 +31,7 @@ type BookingStatus = {
   depositAmount: number;
   assignedBusId?: number | null;
   guestAccessToken?: string | null;
+  cancellationReason?: string | null;
 };
 
 function GroupBookingStatusContent() {
@@ -49,6 +53,13 @@ function GroupBookingStatusContent() {
   const [paying, setPaying] = useState(false);
   const [paymentMsg, setPaymentMsg] = useState("");
   const [paymentError, setPaymentError] = useState("");
+
+  // Customer Cancellation states
+  const [showCancelModal, setShowCancelModal] = useState(false);
+  const [cancelReason, setCancelReason] = useState("");
+  const [cancelling, setCancelling] = useState(false);
+  const [cancelNotice, setCancelNotice] = useState("");
+  const [cancelError, setCancelError] = useState("");
 
   const lookup = useCallback(async (event?: React.FormEvent) => {
     event?.preventDefault();
@@ -116,6 +127,35 @@ function GroupBookingStatusContent() {
       setPaymentError(err instanceof Error ? err.message : "Payment processing error.");
     } finally {
       setPaying(false);
+    }
+  };
+
+  const handleCancelSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!booking) return;
+    setCancelling(true);
+    setCancelError("");
+    setCancelNotice("");
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/group-bookings/cancel`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          reference: booking.bookingReference,
+          phone: phone.trim(),
+          reason: cancelReason.trim() || "Customer requested cancellation prior to payment / verification",
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Failed to cancel booking request.");
+      setBooking(data);
+      setShowCancelModal(false);
+      setCancelNotice("Your group booking request has been successfully cancelled.");
+      setShowPayment(false);
+    } catch (err: unknown) {
+      setCancelError(err instanceof Error ? err.message : "Failed to cancel booking request.");
+    } finally {
+      setCancelling(false);
     }
   };
 
@@ -204,6 +244,13 @@ function GroupBookingStatusContent() {
           <div role="status" className="p-4 bg-emerald-50 border border-emerald-500/30 text-emerald-700 text-xs rounded-2xl mb-4 flex items-center gap-2">
             <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
             <span>{paymentMsg}</span>
+          </div>
+        )}
+
+        {cancelNotice && (
+          <div role="status" className="p-4 bg-rose-50 border border-rose-300 text-rose-800 text-xs rounded-2xl mb-4 flex items-center gap-2">
+            <XCircle className="w-5 h-5 text-rose-500 shrink-0" />
+            <span>{cancelNotice}</span>
           </div>
         )}
 
@@ -301,13 +348,28 @@ function GroupBookingStatusContent() {
                 </span>
               </div>
 
+              {/* Status Note: CANCELLED */}
+              {booking.status === "CANCELLED" && (
+                <div className="pt-4 border-t border-[var(--ciao-border)]">
+                  <div className="p-4 bg-rose-50/90 border border-rose-200 rounded-2xl flex items-start gap-3">
+                    <XCircle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-xs font-bold text-rose-900">This Group Booking Has Been Cancelled</p>
+                      <p className="text-[11px] text-rose-700 mt-1 leading-relaxed">
+                        {booking.cancellationReason || "This booking request was cancelled prior to payment and confirmation."}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Status Note: COMPLETED */}
               {booking.status === "COMPLETED" && (
                 <div className="pt-4 border-t border-[var(--ciao-border)]">
                   <div className="p-4 bg-emerald-50/80 border border-emerald-500/30 rounded-2xl flex items-center gap-3">
                     <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
                     <div>
-                      <p className="text-xs font-bold text-emerald-900">Full Payment Settled & Trip Confirmed</p>
+                      <p className="text-xs font-bold text-emerald-900">Full Payment Settled &amp; Trip Confirmed</p>
                       <p className="text-[11px] text-emerald-700 mt-0.5">
                         Both advance deposit and the remaining balance have been fully authorized. Your charter bus is booked.
                       </p>
@@ -320,7 +382,7 @@ function GroupBookingStatusContent() {
               {(booking.status === "APPROVED" || booking.status === "PENDING_REVIEW" || booking.status === "DEPOSIT_PAID") && (
                 <div className="pt-4 border-t border-[var(--ciao-border)]">
                   {!showPayment ? (
-                    <div>
+                    <div className="space-y-2.5">
                       {booking.status === "DEPOSIT_PAID" ? (
                         <div className="space-y-2">
                           <div className="p-3 bg-blue-50/60 border border-blue-200 rounded-xl text-xs text-blue-900 flex items-center justify-between">
@@ -338,16 +400,29 @@ function GroupBookingStatusContent() {
                           </button>
                         </div>
                       ) : (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setPaymentMode("deposit");
-                            setShowPayment(true);
-                          }}
-                          className="ciao-btn-primary w-full justify-center h-11 text-xs"
-                        >
-                          <CreditCard className="w-4 h-4" /> Pay Advance Deposit (University Simulation)
-                        </button>
+                        <div className="space-y-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPaymentMode("deposit");
+                              setShowPayment(true);
+                            }}
+                            className="ciao-btn-primary w-full justify-center h-11 text-xs"
+                          >
+                            <CreditCard className="w-4 h-4" /> Pay Advance Deposit (University Simulation)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setCancelReason("");
+                              setCancelError("");
+                              setShowCancelModal(true);
+                            }}
+                            className="w-full inline-flex items-center justify-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50/70 hover:bg-rose-100 text-rose-700 font-semibold py-2.5 px-4 text-xs transition-colors"
+                          >
+                            <XCircle className="w-4 h-4" /> Cancel Booking Request
+                          </button>
+                        </div>
                       )}
                     </div>
                   ) : (
@@ -469,6 +544,71 @@ function GroupBookingStatusContent() {
           </Link>
         </div>
       </div>
+
+      {/* Customer Cancellation Dialog */}
+      {showCancelModal && booking && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm animate-in fade-in duration-200">
+          <div role="dialog" aria-modal="true" className="w-full max-w-md rounded-2xl border border-rose-200 bg-white p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-[var(--ciao-border)]">
+              <div className="flex items-center gap-2 text-rose-700">
+                <AlertTriangle className="w-5 h-5 shrink-0" />
+                <h2 className="text-base font-bold text-[#193542]">Cancel Group Booking Request</h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowCancelModal(false)}
+                disabled={cancelling}
+                className="rounded-lg p-1.5 text-[#516a74] hover:bg-rose-50"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-[#516A74] leading-relaxed">
+              Are you sure you want to cancel charter booking <strong className="text-[#193542]">{booking.bookingReference}</strong> for <strong className="text-[#193542]">{booking.customerName}</strong>? Once cancelled, staff will be notified and this request cannot be reactivated.
+            </p>
+
+            {cancelError && (
+              <div role="alert" className="p-3 text-xs bg-rose-50 border border-rose-200 text-rose-700 rounded-xl">
+                {cancelError}
+              </div>
+            )}
+
+            <form onSubmit={handleCancelSubmit} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-[#193542] mb-1">
+                  Reason for Cancellation (Optional)
+                </label>
+                <textarea
+                  rows={3}
+                  value={cancelReason}
+                  onChange={(e) => setCancelReason(e.target.value)}
+                  placeholder="e.g. Schedule dates rescheduled, event venue changed, etc."
+                  className="ciao-input text-xs w-full resize-none"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-[var(--ciao-border)]">
+                <button
+                  type="button"
+                  disabled={cancelling}
+                  onClick={() => setShowCancelModal(false)}
+                  className="ciao-btn-secondary text-xs h-9 px-4"
+                >
+                  Keep Booking
+                </button>
+                <button
+                  type="submit"
+                  disabled={cancelling}
+                  className="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-rose-300 bg-rose-600 px-4 text-xs font-semibold text-white hover:bg-rose-700 focus-visible:outline-2 focus-visible:outline-rose-600 disabled:opacity-50"
+                >
+                  {cancelling ? "Cancelling..." : "Confirm Cancellation"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

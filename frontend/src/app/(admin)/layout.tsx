@@ -19,6 +19,7 @@ import {
   Loader2,
   AlertCircle,
   Menu,
+  Bell,
   X
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -44,6 +45,34 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const [error, setError] = useState("");
   const [retry, setRetry] = useState(0);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  useEffect(() => {
+    let active = true;
+    const fetchAdminNotifications = async () => {
+      try {
+        const res = await fetch("/api/eer/notifications", { credentials: "include" });
+        if (res.ok && active) {
+          const data = await res.json();
+          if (Array.isArray(data)) {
+            const unread = data.filter((n: { readStatus?: boolean; readAt?: string | null }) => !n.readStatus && !n.readAt).length;
+            setUnreadCount(unread);
+          }
+        }
+      } catch {
+        // ignore
+      }
+    };
+    void fetchAdminNotifications();
+    const timer = setInterval(fetchAdminNotifications, 10000);
+    const handleNotifChange = () => void fetchAdminNotifications();
+    window.addEventListener("ciao_notification_change", handleNotifChange);
+    return () => {
+      active = false;
+      clearInterval(timer);
+      window.removeEventListener("ciao_notification_change", handleNotifChange);
+    };
+  }, [pathname]);
 
   useEffect(() => {
     let active = true;
@@ -116,13 +145,27 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           <span className="text-2xl font-extrabold tracking-[-.08em] text-[#193542]">ciao<span className="text-[#087478]">.</span></span>
           <Badge variant="gold" className="text-xs uppercase tracking-wider px-2 py-0.5">Staff</Badge>
         </div>
-        <button
-          onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-          className="p-2 text-[var(--ciao-muted)] hover:text-[#193542]"
-          aria-label="Toggle Navigation"
-        >
-          {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
-        </button>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/profile?tab=notifications"
+            className="relative p-2 text-[#516A74] hover:text-[#087478]"
+            title="Notifications"
+          >
+            <Bell className="w-5 h-5" />
+            {unreadCount > 0 && (
+              <span className="absolute top-1 right-1 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold text-white shadow-sm">
+                {unreadCount > 9 ? "9+" : unreadCount}
+              </span>
+            )}
+          </Link>
+          <button
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            className="p-2 text-[var(--ciao-muted)] hover:text-[#193542]"
+            aria-label="Toggle Navigation"
+          >
+            {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+          </button>
+        </div>
       </div>
 
       {/* Admin Sidebar */}
@@ -179,6 +222,20 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
         {/* Footer Actions */}
         <div className="pt-4 border-t border-[rgba(203,213,225,0.12)] space-y-2">
+          <Link
+            href="/profile?tab=notifications"
+            className="flex items-center justify-between px-3 py-2 rounded-lg text-sm font-medium text-[#516A74] hover:text-[#087478] hover:bg-[#EAF3F0] transition-colors"
+          >
+            <div className="flex items-center gap-2.5">
+              <Bell className="w-4 h-4 text-[#087478]" />
+              <span>Notifications</span>
+            </div>
+            {unreadCount > 0 && (
+              <span className="bg-rose-500 text-white text-xs font-bold px-2 py-0.5 rounded-full shadow-sm animate-pulse">
+                {unreadCount > 9 ? "9+" : unreadCount}
+              </span>
+            )}
+          </Link>
           <Link
             href="/profile"
             className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium text-[#516A74] hover:text-[#087478] hover:bg-[#EAF3F0] transition-colors"

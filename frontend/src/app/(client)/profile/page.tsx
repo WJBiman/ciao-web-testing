@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
-import { User, Bell, PackageOpen, Phone, Plus, X, Check, AlertCircle, ArrowLeft } from "lucide-react";
+import { User, Bell, PackageOpen, Phone, Plus, X, Check, AlertCircle, ArrowLeft, Bus, MapPin, Tag, ShieldCheck, Clock, FileText, CheckCircle2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
 interface UserProfileData {
@@ -45,11 +45,28 @@ interface UserClaimItem {
     itemDescription: string;
     status: string;
     reportedByName?: string;
+    reportedByPhone?: string;
+    createdAt?: string;
+    bus?: {
+      id?: number;
+      plateNumber?: string;
+      busType?: string;
+    } | null;
+    route?: {
+      id?: number;
+      origin?: string;
+      destination?: string;
+      distanceKm?: number;
+    } | null;
   };
   proofOfOwnership: string;
   claimStatus: string;
   claimDate: string;
   returnedAt?: string;
+  handledBy?: {
+    employeeCode?: string;
+    staffType?: string;
+  } | null;
 }
 
 export default function CustomerProfilePage() {
@@ -135,6 +152,22 @@ export default function CustomerProfilePage() {
       }
     };
     void loadAll();
+
+    // Check query params for tab selection (e.g. ?tab=notifications or ?tab=claims&itemId=1)
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const tabParam = params.get("tab");
+      const itemParam = params.get("itemId");
+      if (tabParam === "notifications" || tabParam === "claims" || tabParam === "profile") {
+        setActiveTab(tabParam);
+      }
+      if (itemParam) {
+        setActiveTab("claims");
+        setShowClaimForm(true);
+        setClaimItemId(itemParam);
+      }
+    }
+
     return () => { active = false; };
   }, [fetchProfileData, fetchNotifications, fetchMyClaims]);
 
@@ -248,9 +281,25 @@ export default function CustomerProfilePage() {
         method: "POST",
         credentials: "include",
       });
-      fetchNotifications();
+      await fetchNotifications();
+      window.dispatchEvent(new Event("ciao_notification_change"));
+      window.dispatchEvent(new Event("ciao_auth_change"));
     } catch (e) {
       console.error("Error marking read", e);
+    }
+  };
+
+  const markAllNotificationsAsRead = async () => {
+    try {
+      await fetch(`/api/eer/notifications/read-all`, {
+        method: "POST",
+        credentials: "include",
+      });
+      await fetchNotifications();
+      window.dispatchEvent(new Event("ciao_notification_change"));
+      window.dispatchEvent(new Event("ciao_auth_change"));
+    } catch (e) {
+      console.error("Error marking all read", e);
     }
   };
 
@@ -475,47 +524,61 @@ export default function CustomerProfilePage() {
         {/* Tab 2: Notification Inbox */}
         {activeTab === "notifications" && (
           <div className="bg-[#FFFFFF] border border-[rgba(25,53,66,0.12)] p-6 md:p-8 rounded-3xl shadow-xl">
-            <h2 className="text-lg md:text-xl font-bold text-[#193542] mb-4 flex items-center gap-2">
-              <Bell className="w-5 h-5 text-[#087478]" /> System Notification Inbox
-            </h2>
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-4 gap-2">
+              <h2 className="text-lg md:text-xl font-bold text-[#193542] flex items-center gap-2">
+                <Bell className="w-5 h-5 text-[#087478]" /> System Notification Inbox
+              </h2>
+              {notifications.some((n) => !n.readAt && !n.readStatus) && (
+                <button
+                  type="button"
+                  onClick={markAllNotificationsAsRead}
+                  className="ciao-btn-secondary text-xs !py-1.5 !px-3 font-semibold"
+                >
+                  Mark All as Read
+                </button>
+              )}
+            </div>
             {notifications.length === 0 ? (
               <div className="text-center py-12 text-[#5E7480] text-sm">
                 You have no notifications yet.
               </div>
             ) : (
               <div className="space-y-3">
-                {notifications.map((n) => (
-                  <div
-                    key={n.id}
-                    className={`p-4 rounded-2xl border transition-all ${
-                      n.readAt 
-                        ? "bg-[#EDF3F1] border-[rgba(203,213,225,0.06)] text-[#5E7480]" 
-                        : "bg-[#EAF3F0] border-[#087478]/40 text-[#193542]"
-                    }`}
-                  >
-                    <div className="flex justify-between items-start gap-4">
-                      <div>
-                        <span className="text-xs font-bold uppercase tracking-wider text-[#087478] block mb-1">
-                          {n.notificationType}
-                        </span>
-                        <p className="text-sm font-medium leading-relaxed">{n.message}</p>
-                        {n.sentAt && (
-                          <span className="text-xs text-[#71858B] mt-1.5 block">
-                            {new Date(n.sentAt).toLocaleString()}
+                {notifications.map((n) => {
+                  const isRead = Boolean(n.readAt || n.readStatus);
+                  return (
+                    <div
+                      key={n.id}
+                      className={`p-4 rounded-2xl border transition-all ${
+                        isRead
+                          ? "bg-[#EDF3F1] border-[rgba(203,213,225,0.06)] text-[#5E7480]" 
+                          : "bg-[#EAF3F0] border-[#087478]/40 text-[#193542]"
+                      }`}
+                    >
+                      <div className="flex justify-between items-start gap-4">
+                        <div>
+                          <span className="text-xs font-bold uppercase tracking-wider text-[#087478] block mb-1">
+                            {n.notificationType}
                           </span>
+                          <p className="text-sm font-medium leading-relaxed">{n.message}</p>
+                          {n.sentAt && (
+                            <span className="text-xs text-[#71858B] mt-1.5 block">
+                              {new Date(n.sentAt).toLocaleString()}
+                            </span>
+                          )}
+                        </div>
+                        {!isRead && (
+                          <button
+                            onClick={() => markNotificationAsRead(n.id)}
+                            className="ciao-btn-secondary text-xs !py-1 !px-2.5 shrink-0"
+                          >
+                            Mark as Read
+                          </button>
                         )}
                       </div>
-                      {!n.readAt && (
-                        <button
-                          onClick={() => markNotificationAsRead(n.id)}
-                          className="ciao-btn-secondary text-xs !py-1 !px-2.5 shrink-0"
-                        >
-                          Mark as Read
-                        </button>
-                      )}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -600,35 +663,173 @@ export default function CustomerProfilePage() {
                 You haven&apos;t filed any lost property claims yet.
               </div>
             ) : (
-              <div className="space-y-3">
-                {claims.map((c) => (
-                  <div key={c.id} className="p-5 rounded-2xl bg-[#F7FAF9] border border-[rgba(25,53,66,0.12)]">
-                    <div className="flex justify-between items-start gap-4">
-                      <div>
-                        <span className="text-xs font-bold text-[#5E7480]">Claim #{c.id}</span>
-                        <h3 className="text-base md:text-lg font-bold text-[#193542] mt-0.5">{c.item?.itemDescription || "Lost Property Item"}</h3>
-                        <p className="text-xs md:text-sm text-[#516A74] mt-1.5 leading-relaxed">
-                          <strong className="text-[#193542]">Proof Provided:</strong> {c.proofOfOwnership}
-                        </p>
+              <div className="space-y-4">
+                {claims.map((c) => {
+                  const itemId = c.item?.id || 0;
+                  const docketNo = `LF-#${String(itemId).padStart(4, "0")}`;
+                  const busPlate = c.item?.bus?.plateNumber;
+                  const busType = c.item?.bus?.busType;
+                  const routeOrigin = c.item?.route?.origin;
+                  const routeDest = c.item?.route?.destination;
+                  const itemStatus = c.item?.status;
+                  const isApproved = c.claimStatus === "APPROVED";
+                  const isPending = c.claimStatus === "PENDING";
+                  const isReturned = c.claimStatus === "RETURNED";
+                  const isRejected = c.claimStatus === "REJECTED";
+
+                  return (
+                    <div
+                      key={c.id}
+                      className="p-5 md:p-6 rounded-2xl bg-[#FFFFFF] border border-[rgba(25,53,66,0.14)] shadow-sm hover:shadow-md transition-shadow duration-200"
+                    >
+                      {/* Top Bar: Case Docket, IDs & Status Badges */}
+                      <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-[rgba(25,53,66,0.08)]">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-xs font-bold px-2.5 py-1 rounded-lg bg-[#087478]/10 text-[#087478] border border-[#087478]/20 flex items-center gap-1.5">
+                            <Tag className="w-3.5 h-3.5" />
+                            Claim #{c.id}
+                          </span>
+                          <span className="text-xs font-semibold px-2.5 py-1 rounded-lg bg-[#193542]/5 text-[#193542] border border-[rgba(25,53,66,0.1)]">
+                            Docket: {docketNo}
+                          </span>
+                          <span className="text-xs text-[#5E7480]">
+                            Item ID: #{itemId}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          {itemStatus && (
+                            <span className="text-[11px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-md bg-[#5E7480]/10 text-[#193542]">
+                              Custody: {itemStatus}
+                            </span>
+                          )}
+                          <Badge
+                            variant={
+                              isApproved ? "success" : 
+                              isRejected ? "danger" : 
+                              isReturned ? "info" : "warning"
+                            }
+                          >
+                            {c.claimStatus}
+                          </Badge>
+                        </div>
                       </div>
-                      <Badge variant={
-                        c.claimStatus === "APPROVED" ? "success" : 
-                        c.claimStatus === "REJECTED" ? "danger" : 
-                        c.claimStatus === "RETURNED" ? "info" : "warning"
-                      }>
-                        {c.claimStatus}
-                      </Badge>
-                    </div>
-                    <div className="mt-4 pt-3 border-t border-[rgba(25,53,66,0.12)] text-xs md:text-sm text-[#5E7480] flex justify-between items-center">
-                      <span>Submitted: {new Date(c.claimDate).toLocaleDateString()}</span>
-                      {c.returnedAt && (
-                        <span className="text-emerald-700 font-semibold">
-                          Handed Over: {new Date(c.returnedAt).toLocaleDateString()}
+
+                      {/* Main Item Description */}
+                      <div className="mt-4">
+                        <div className="flex items-baseline justify-between gap-2">
+                          <h3 className="text-base md:text-lg font-bold text-[#193542]">
+                            {c.item?.itemDescription || "Lost Property Item"}
+                          </h3>
+                        </div>
+
+                        {/* Operational & Transit Context Details */}
+                        <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 p-3.5 rounded-xl bg-[#F7FAF9] border border-[rgba(25,53,66,0.08)] text-xs md:text-sm">
+                          {/* Transit Bus */}
+                          <div className="flex items-center gap-2 text-[#516A74]">
+                            <Bus className="w-4 h-4 text-[#087478] shrink-0" />
+                            <div>
+                              <span className="text-[#5E7480] text-[11px] block">Transit Vehicle</span>
+                              <strong className="text-[#193542] font-semibold">
+                                {busPlate ? `${busPlate}${busType ? ` (${busType})` : ""}` : "Unspecified Coach"}
+                              </strong>
+                            </div>
+                          </div>
+
+                          {/* Route */}
+                          <div className="flex items-center gap-2 text-[#516A74]">
+                            <MapPin className="w-4 h-4 text-[#087478] shrink-0" />
+                            <div>
+                              <span className="text-[#5E7480] text-[11px] block">Travel Route</span>
+                              <strong className="text-[#193542] font-semibold">
+                                {routeOrigin && routeDest ? `${routeOrigin} → ${routeDest}` : "Scheduled Transit Network"}
+                              </strong>
+                            </div>
+                          </div>
+
+                          {/* Reported Contact / Custody Staff */}
+                          <div className="flex items-center gap-2 text-[#516A74]">
+                            <ShieldCheck className="w-4 h-4 text-[#087478] shrink-0" />
+                            <div>
+                              <span className="text-[#5E7480] text-[11px] block">Logged Contact</span>
+                              <strong className="text-[#193542] font-semibold">
+                                {c.item?.reportedByName || "Registered Passenger"} {c.item?.reportedByPhone ? `• ${c.item.reportedByPhone}` : ""}
+                              </strong>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Proof of Ownership Box */}
+                        <div className="mt-3.5 p-3 rounded-xl bg-[#FFFFFF] border border-[#087478]/20 flex items-start gap-2.5">
+                          <FileText className="w-4 h-4 text-[#087478] shrink-0 mt-0.5" />
+                          <div className="text-xs md:text-sm">
+                            <span className="text-[#087478] font-bold block text-xs">Submitted Proof of Ownership:</span>
+                            <p className="text-[#193542] mt-0.5 leading-relaxed">
+                              {c.proofOfOwnership}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Status Message Banners */}
+                        {isApproved && (
+                          <div className="mt-3 p-3 rounded-xl bg-emerald-50 border border-emerald-500/30 text-emerald-800 text-xs md:text-sm flex items-center gap-2">
+                            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                            <span>
+                              <strong>Verification Approved!</strong> Your ownership proof has been verified by the Station Supervisor. Please visit the terminal counter with your National ID to receive your property.
+                            </span>
+                          </div>
+                        )}
+
+                        {isPending && (
+                          <div className="mt-3 p-3 rounded-xl bg-amber-50 border border-amber-500/30 text-amber-800 text-xs md:text-sm flex items-center gap-2">
+                            <Clock className="w-4 h-4 text-amber-600 shrink-0" />
+                            <span>
+                              <strong>Under Staff Verification:</strong> Your claim is queued for review by the Customer Service Supervisor. You will receive a notification once approved.
+                            </span>
+                          </div>
+                        )}
+
+                        {isReturned && (
+                          <div className="mt-3 p-3 rounded-xl bg-blue-50 border border-blue-500/30 text-blue-800 text-xs md:text-sm flex items-center gap-2">
+                            <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0" />
+                            <span>
+                              <strong>Discharged & Handed Over:</strong> Property has been physically returned to the verified claimant.
+                            </span>
+                          </div>
+                        )}
+
+                        {isRejected && (
+                          <div className="mt-3 p-3 rounded-xl bg-red-50 border border-red-500/30 text-red-800 text-xs md:text-sm flex items-center gap-2">
+                            <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+                            <span>
+                              <strong>Claim Not Verified:</strong> The proof provided did not match the recovered property details. Please contact the branch office if you need assistance.
+                            </span>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Footer Timestamps */}
+                      <div className="mt-4 pt-3 border-t border-[rgba(25,53,66,0.08)] text-xs md:text-sm text-[#5E7480] flex flex-wrap justify-between items-center gap-2">
+                        <span className="flex items-center gap-1.5">
+                          <Clock className="w-3.5 h-3.5 text-[#5E7480]" />
+                          Claim Filed: {new Date(c.claimDate).toLocaleString(undefined, {
+                            dateStyle: "medium",
+                            timeStyle: "short",
+                          })}
                         </span>
-                      )}
+                        {c.returnedAt && (
+                          <span className="text-emerald-700 font-semibold flex items-center gap-1">
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            Handed Over: {new Date(c.returnedAt).toLocaleString(undefined, {
+                              dateStyle: "medium",
+                              timeStyle: "short",
+                            })}
+                          </span>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>

@@ -141,6 +141,7 @@ public class AuthService {
 
         String identifier = username.trim();
         User user = userRepository.findByEmailIgnoreCase(identifier)
+                .or(() -> userRepository.findByUsernameIgnoreCase(identifier))
                 .orElseGet(() -> userRepository.findByPhone(identifier).orElse(null));
 
         if (user == null) {

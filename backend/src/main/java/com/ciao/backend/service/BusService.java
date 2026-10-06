@@ -39,15 +39,36 @@ public class BusService {
             throw new RuntimeException("Error: Plate number is already in use!");
         }
 
-        Bus bus = new Bus(
-                plate,
-                request.getCapacity(),
-                amenities,
-                request.getStatus() != null ? request.getStatus() : Bus.BusStatus.ACTIVE
+        // =========================================================================================
+        // DESIGN PATTERN: FACTORY METHOD PATTERN (Creational)
+        // ASSIGNED MEMBER: De Silva Y.Y.S. (IT25101753)
+        // COMPONENT: Bus Fleet & Driver Records Management
+        // EXPLANATION: Decouples coach entity initialization from concrete classes.
+        //              BusFleetFactory instantiates LuxuryAcBusSpecification,
+        //              SemiLuxuryBusSpecification, or MiniCharterBusSpecification
+        //              to configure default capacities and standard onboard amenities.
+        // =========================================================================================
+        Bus bus = com.ciao.backend.pattern.factory.bus.BusFleetFactory.createBus(
+                request.getAmenities(),
+                plate
         );
+        if (request.getCapacity() != null && request.getCapacity() > 0) {
+            bus.setCapacity(request.getCapacity());
+        }
+        if (amenities != null && !amenities.isEmpty()) {
+            bus.setAmenities(amenities);
+        }
+        if (request.getStatus() != null) {
+            bus.setStatus(request.getStatus());
+        }
 
         Bus saved = busRepository.save(bus);
         eerService.syncSeats(saved);
+        
+        // Operational Audit: Fleet Entity Specification Instantiation (Assigned Member: De Silva Y.Y.S. - IT25101753)
+        System.out.println("[FACTORY: BUS-FLEET] Instantiated and created Bus: " + saved.getPlateNumber() 
+                + " | Capacity: " + saved.getCapacity() + " | Amenities: " + saved.getAmenities());
+        
         return saved;
     }
 

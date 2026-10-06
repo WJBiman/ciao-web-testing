@@ -13,6 +13,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.ciao.backend.entity.Notification;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -33,7 +35,13 @@ public class GroupBookingService {
     private com.ciao.backend.repository.PaymentRepository paymentRepository;
 
     @Autowired
+    private com.ciao.backend.repository.NotificationRepository notifications;
+
+    @Autowired
     private com.ciao.backend.repository.StaffProfileRepository staffRepository;
+
+    @Autowired
+    private com.ciao.backend.pattern.observer.group.GroupBookingSubject groupBookingSubject;
 
     @Transactional
     public GroupBookingResponse createBookingRequest(GroupBookingRequest request) {
@@ -85,6 +93,24 @@ public class GroupBookingService {
 
         GroupBooking saved = groupBookingRepository.save(booking);
         eer.syncGroup(saved);
+
+        // Notify Operations and Branch Managers
+        try {
+            List<com.ciao.backend.entity.StaffProfile> managers = staffRepository.findByStaffType("OPERATIONS_MANAGER");
+            managers.addAll(staffRepository.findByStaffType("BRANCH_MANAGER"));
+            for (com.ciao.backend.entity.StaffProfile sp : managers) {
+                if (sp.getUser() != null) {
+                    com.ciao.backend.entity.Notification sn = new com.ciao.backend.entity.Notification();
+                    sn.setUser(sp.getUser());
+                    sn.setTitle("New Group Charter Request");
+                    sn.setNotificationType("GROUP_REQUEST");
+                    sn.setMessage("[Action Required] Group booking request #" + saved.getId() + " submitted by " + name + " for " + saved.getPassengerCount() + " passengers.");
+                    sn.setSentAt(java.time.LocalDateTime.now());
+                    notifications.save(sn);
+                }
+            }
+        } catch (Exception ignored) {}
+
         GroupBookingResponse response = mapToResponse(saved);
         // Only the initial creation response receives the freshly minted secret guestAccessToken
         response.setGuestAccessToken(saved.getGuestAccessToken());
@@ -226,7 +252,47 @@ public class GroupBookingService {
         }
         GroupBooking updated = groupBookingRepository.save(booking);
         eer.syncGroup(updated);
+
+        // =========================================================================================
+        // DESIGN PATTERN: OBSERVER PATTERN (Behavioral)
+        // ASSIGNED MEMBER: Govinna G.N.C. (IT25101627)
+        // COMPONENT: Group Booking Management
+        // EXPLANATION: Implements One-to-Many dependency for charter lifecycle changes.
+        //              When status changes (APPROVED, DEPOSIT_PAID, CANCELLED, etc.),
+        //              GroupBookingSubject automatically notifies GroupBookingCustomerAlertObserver
+        //              (sending customer push alerts) and GroupBookingFinanceAuditObserver
+        //              (recording ledger & audit updates) in a loosely coupled manner.
+        // =========================================================================================
+        if (groupBookingSubject != null) {
+            groupBookingSubject.notifyObservers(updated, "Status transitioned to " + newStatus.name());
+        }
+
         return mapToResponse(updated);
+    }
+
+    public List<Bus> getAvailableBusesForBooking(Integer bookingId) {
+        GroupBooking booking = groupBookingRepository.findById(bookingId)
+                .orElseThrow(() -> new RuntimeException("Group Booking not found"));
+
+        List<Bus> allActiveBuses = busRepository.findAll().stream()
+                .filter(b -> b.getStatus() == Bus.BusStatus.ACTIVE)
+                .toList();
+
+        Integer ownDedicatedScheduleId = (booking.getBooking() != null && booking.getBooking().getSchedule() != null)
+                ? booking.getBooking().getSchedule().getId()
+                : null;
+
+        List<Bus> available = new java.util.ArrayList<>();
+        for (Bus bus : allActiveBuses) {
+            try {
+                eer.validateBusAssignmentForCharter(bus.getId(), booking.getId(), ownDedicatedScheduleId,
+                        booking.getStartDate(), booking.getEndDate(), booking.getPassengerCount());
+                available.add(bus);
+            } catch (Exception ignored) {
+                // Bus is busy or not suitable, skip it so staff only sees available buses
+            }
+        }
+        return available;
     }
 
     private GroupBookingResponse mapToResponse(GroupBooking booking) {
@@ -244,6 +310,7 @@ public class GroupBookingService {
         res.setTotalCost(booking.getTotalCost());
         res.setDepositAmount(booking.getDepositAmount());
         res.setStatus(booking.getStatus().name());
+        res.setCancellationReason(booking.getCancellationReason());
         res.setCreatedAt(booking.getCreatedAt());
         if (booking.getAssignedBus() != null) {
             res.setAssignedBusId(booking.getAssignedBus().getId());
@@ -308,5 +375,68 @@ public class GroupBookingService {
             groupBookingRepository.save(booking);
         }
         return booking.getGuestAccessToken();
+    }
+
+    @Transactional
+    public GroupBookingResponse cancelByCustomer(String reference, String phone, String reason) {
+        if (reference == null || phone == null || !reference.matches("(?i)GRP-[0-9]+")) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.BAD_REQUEST, "Invalid booking reference format."
+            );
+        }
+        Integer id = Integer.valueOf(reference.substring(4));
+        GroupBooking booking = groupBookingRepository.findByIdAndCustomerPhone(id, phone.trim())
+                .orElseThrow(() -> new org.springframework.web.server.ResponseStatusException(
+                        org.springframework.http.HttpStatus.NOT_FOUND, "Booking not found. Please verify the booking reference and phone number."
+                ));
+
+        if (booking.getStatus() == GroupBooking.GroupBookingStatus.CANCELLED) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.BAD_REQUEST, "This group booking request is already cancelled."
+            );
+        }
+
+        if (booking.getStatus() == GroupBooking.GroupBookingStatus.DEPOSIT_PAID || booking.getStatus() == GroupBooking.GroupBookingStatus.COMPLETED) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.BAD_REQUEST, "Group bookings with completed payments cannot be cancelled directly here. Please contact our support desk."
+            );
+        }
+
+        booking.setStatus(GroupBooking.GroupBookingStatus.CANCELLED);
+        String finalReason = (reason != null && !reason.isBlank()) ? reason.trim() : "Cancelled by customer prior to payment / verification";
+        booking.setCancellationReason(finalReason);
+
+        if (booking.getBooking() != null) {
+            booking.getBooking().setBookingStatus("CANCELLED");
+            if (booking.getBooking().getSchedule() != null) {
+                Schedule sch = booking.getBooking().getSchedule();
+                boolean otherActiveCharterOnSchedule = groupBookingRepository.findAll().stream().anyMatch(other ->
+                        !other.getId().equals(booking.getId()) &&
+                        other.getBooking() != null && other.getBooking().getSchedule() != null
+                        && other.getBooking().getSchedule().getId().equals(sch.getId())
+                        && other.getStatus() != GroupBooking.GroupBookingStatus.CANCELLED);
+                if (!otherActiveCharterOnSchedule) {
+                    sch.setCharter(false);
+                    scheduleRepository.save(sch);
+                }
+            }
+        }
+
+        GroupBooking cancelled = groupBookingRepository.save(booking);
+        eer.syncGroup(cancelled);
+
+        // Notify user if account exists
+        if (booking.getBooking() != null && booking.getBooking().getCustomer() != null && booking.getBooking().getCustomer().getUser() != null) {
+            Notification n = new Notification();
+            n.setUser(booking.getBooking().getCustomer().getUser());
+            n.setBooking(booking.getBooking());
+            n.setTitle("Group Booking Cancelled");
+            n.setNotificationType("GROUP_CANCELLED");
+            n.setMessage("[Group Booking Cancelled] Your charter request GRP-" + booking.getId() + " has been cancelled. Reason: " + finalReason);
+            n.setSentAt(LocalDateTime.now());
+            notifications.save(n);
+        }
+
+        return mapToResponse(cancelled);
     }
 }

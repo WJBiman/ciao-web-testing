@@ -120,5 +120,24 @@ public class ReservationController {
             return ResponseEntity.badRequest().body("{\"message\": \"" + e.getMessage() + "\"}");
         }
     }
+
+    public record CancelRequestInput(@jakarta.validation.constraints.NotBlank @jakarta.validation.constraints.Size(max=500) String reason) {}
+
+    @PostMapping("/reservations/{id}/cancel-request")
+    public ResponseEntity<?> requestCancellation(@PathVariable Integer id, @jakarta.validation.Valid @RequestBody CancelRequestInput input) {
+        try {
+            Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+            if (authentication == null || !authentication.isAuthenticated() || "anonymousUser".equals(authentication.getPrincipal())) {
+                return ResponseEntity.status(401).body(java.util.Map.of("message", "Please sign in to continue."));
+            }
+
+            String username = authentication.getName();
+            return ResponseEntity.ok(reservationService.requestCancellation(id, username, input.reason()));
+        } catch (org.springframework.web.server.ResponseStatusException e) {
+            return ResponseEntity.status(e.getStatusCode()).body(java.util.Map.of("message", e.getReason() != null ? e.getReason() : e.getMessage()));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(java.util.Map.of("message", e.getMessage() != null ? e.getMessage() : "Failed to process cancellation request."));
+        }
+    }
 }
 

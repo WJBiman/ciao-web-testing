@@ -24,8 +24,10 @@ public class GroupBookingController {
         try {
             GroupBookingResponse response = groupBookingService.createBookingRequest(request);
             return ResponseEntity.ok(response);
+        } catch (org.springframework.web.server.ResponseStatusException rse) {
+            return ResponseEntity.status(rse.getStatusCode()).body(java.util.Map.of("message", rse.getReason() != null ? rse.getReason() : rse.getMessage()));
         } catch (Exception e) {
-            return ResponseEntity.badRequest().body("{\"message\": \"" + e.getMessage() + "\"}");
+            return ResponseEntity.badRequest().body(java.util.Map.of("message", e.getMessage() != null ? e.getMessage() : "Failed to create booking"));
         }
     }
 
@@ -33,8 +35,10 @@ public class GroupBookingController {
     public ResponseEntity<?> getCustomerStatus(@RequestParam String reference, @RequestParam String phone) {
         try {
             return ResponseEntity.ok(groupBookingService.getCustomerStatus(reference, phone));
+        } catch (org.springframework.web.server.ResponseStatusException rse) {
+            return ResponseEntity.status(rse.getStatusCode()).body(java.util.Map.of("message", rse.getReason() != null ? rse.getReason() : rse.getMessage()));
         } catch (Exception e) {
-            return ResponseEntity.status(404).body("{\"message\": \"" + e.getMessage() + "\"}");
+            return ResponseEntity.status(404).body(java.util.Map.of("message", e.getMessage() != null ? e.getMessage() : "Booking not found"));
         }
     }
 
@@ -45,9 +49,27 @@ public class GroupBookingController {
             String token = groupBookingService.recoverGuestAccessToken(req.reference(), req.phone(), req.name());
             return ResponseEntity.ok(java.util.Map.of("guestAccessToken", token, "message", "Guest access token recovered securely."));
         } catch (org.springframework.web.server.ResponseStatusException e) {
-            return ResponseEntity.status(e.getStatusCode()).body("{\"message\": \"" + e.getReason() + "\"}");
+            return ResponseEntity.status(e.getStatusCode()).body(java.util.Map.of("message", e.getReason() != null ? e.getReason() : e.getMessage()));
         } catch (Exception e) {
-            return ResponseEntity.badRequest().body("{\"message\": \"" + e.getMessage() + "\"}");
+            return ResponseEntity.badRequest().body(java.util.Map.of("message", e.getMessage() != null ? e.getMessage() : "Failed to recover token"));
+        }
+    }
+
+    public record CustomerCancelRequest(
+            @jakarta.validation.constraints.NotBlank(message = "Booking reference is required") String reference,
+            @jakarta.validation.constraints.NotBlank(message = "Customer phone is required") String phone,
+            String reason
+    ) {}
+
+    @PostMapping("/cancel")
+    public ResponseEntity<?> customerCancel(@jakarta.validation.Valid @RequestBody CustomerCancelRequest req) {
+        try {
+            GroupBookingResponse response = groupBookingService.cancelByCustomer(req.reference(), req.phone(), req.reason());
+            return ResponseEntity.ok(response);
+        } catch (org.springframework.web.server.ResponseStatusException e) {
+            return ResponseEntity.status(e.getStatusCode()).body(java.util.Map.of("message", e.getReason() != null ? e.getReason() : e.getMessage()));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(java.util.Map.of("message", e.getMessage() != null ? e.getMessage() : "Failed to cancel group booking"));
         }
     }
 
@@ -58,8 +80,10 @@ public class GroupBookingController {
         try {
             List<GroupBookingResponse> responses = groupBookingService.getAllGroupBookings();
             return ResponseEntity.ok(responses);
+        } catch (org.springframework.web.server.ResponseStatusException rse) {
+            return ResponseEntity.status(rse.getStatusCode()).body(java.util.Map.of("message", rse.getReason() != null ? rse.getReason() : rse.getMessage()));
         } catch (Exception e) {
-            return ResponseEntity.badRequest().body("{\"message\": \"" + e.getMessage() + "\"}");
+            return ResponseEntity.badRequest().body(java.util.Map.of("message", e.getMessage() != null ? e.getMessage() : "Failed to fetch bookings"));
         }
     }
 
@@ -70,8 +94,10 @@ public class GroupBookingController {
         try {
             GroupBookingResponse response = groupBookingService.getGroupBookingById(id);
             return ResponseEntity.ok(response);
+        } catch (org.springframework.web.server.ResponseStatusException rse) {
+            return ResponseEntity.status(rse.getStatusCode()).body(java.util.Map.of("message", rse.getReason() != null ? rse.getReason() : rse.getMessage()));
         } catch (Exception e) {
-            return ResponseEntity.badRequest().body("{\"message\": \"" + e.getMessage() + "\"}");
+            return ResponseEntity.badRequest().body(java.util.Map.of("message", e.getMessage() != null ? e.getMessage() : "Booking not found"));
         }
     }
 
@@ -82,8 +108,23 @@ public class GroupBookingController {
         try {
             GroupBookingResponse response = groupBookingService.updateBookingStatus(id, request);
             return ResponseEntity.ok(response);
+        } catch (org.springframework.web.server.ResponseStatusException rse) {
+            return ResponseEntity.status(rse.getStatusCode()).body(java.util.Map.of("message", rse.getReason() != null ? rse.getReason() : rse.getMessage()));
         } catch (Exception e) {
-            return ResponseEntity.badRequest().body("{\"message\": \"" + e.getMessage() + "\"}");
+            return ResponseEntity.badRequest().body(java.util.Map.of("message", e.getMessage() != null ? e.getMessage() : "Failed to update status"));
+        }
+    }
+
+    // Admin/Staff endpoint: Get only available, conflict-free buses for this booking
+    @GetMapping("/{id}/available-buses")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('STAFF')")
+    public ResponseEntity<?> getAvailableBuses(@PathVariable Integer id) {
+        try {
+            return ResponseEntity.ok(groupBookingService.getAvailableBusesForBooking(id));
+        } catch (org.springframework.web.server.ResponseStatusException rse) {
+            return ResponseEntity.status(rse.getStatusCode()).body(java.util.Map.of("message", rse.getReason() != null ? rse.getReason() : rse.getMessage()));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(java.util.Map.of("message", e.getMessage() != null ? e.getMessage() : "Failed to fetch available buses"));
         }
     }
 }

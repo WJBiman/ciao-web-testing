@@ -37,9 +37,13 @@ public class PaymentController {
                 guestResId = jwtUtils.getReservationIdFromGuestToken(authHeader.substring(7));
             }
 
+            System.out.println("[API: CHECKOUT-HIT] Incoming payment request for Reservation ID: " + request.getReservationId() 
+                    + " | User: " + username + " | GuestResId: " + guestResId);
+
             PaymentResponse response = paymentService.processCheckout(request, username, guestResId);
             return ResponseEntity.ok(response);
         } catch (Exception e) {
+            System.err.println("[API: CHECKOUT-ERROR] Checkout failed with exception: " + e.getMessage());
             return ResponseEntity.badRequest().body(new com.ciao.backend.dto.MessageResponse(e.getMessage()));
         }
     }
